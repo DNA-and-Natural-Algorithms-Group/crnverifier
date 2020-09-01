@@ -1,15 +1,19 @@
 #
-#  nuskell/verifier/crn_bisimulation_equivalence.py
-#  NuskellCompilerProject
+#  crnverifier/crn_bisimulation.py
+#  Original source from the Nuskell compiler project
 #
-from __future__ import absolute_import, division, print_function
-from builtins import map, zip, dict, range
-from functools import reduce
-
+#  Authors:
+#   - Qing Dong
+#   - Robert Johnson
+#   - Stefan Badelt
+#
 import logging
 log = logging.getLogger(__name__)
 
-import itertools, copy, math
+import copy
+import math
+import itertools
+from functools import reduce
 from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
 
 def pretty_crn(crn):
@@ -1122,7 +1126,7 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
         yield False
         yield [fintr, max_depth, permissive_failure]
 
-def test(fcrn, icrn, fs, interpretation = None, permissive = 'whole-graph',
+def crn_bisimulation_test(fcrn, icrn, fs, interpretation = None, permissive = 'whole-graph',
          permissive_depth = None, verbose = False, iterate = False):
     # wrapper function for the new test_iter; should be backwards-compatible
     # if iterate=False, should behave exactly like old test
@@ -1136,7 +1140,7 @@ def test(fcrn, icrn, fs, interpretation = None, permissive = 'whole-graph',
         correct = next(iter_out)
         return [correct, next(iter_out)]
 
-def testModules(fcrns, icrns, fs, interpretation, ispCommon=None,
+def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=None,
                 permissive='whole-graph', permissive_depth=None,
                 verbose=False, iterate = False):
     '''Check whether an interpretation which is a modular bisimulation exists.
@@ -1147,7 +1151,7 @@ def testModules(fcrns, icrns, fs, interpretation, ispCommon=None,
     fs: list of formal species
     ispCommon: list of implementation species common to all modules
     interpretation: partial interpretation
-    permissive, permissive_depth, verbose: same as test() above
+    permissive, permissive_depth, verbose: same as crn_bisimulation_test() above
     iterate: determine whether to return one or all correct interpretations
 
     Outputs:
@@ -1178,7 +1182,7 @@ def testModules(fcrns, icrns, fs, interpretation, ispCommon=None,
         intr = {k: interpretation[k] for k in interpretation
                  if k in ispCommon
                  or any([k in rxn[0] or k in rxn[1] for rxn in icrn])}
-        out = test(fcrn, icrn, fs, intr, permissive,
+        out = crn_bisimulation_test(fcrn, icrn, fs, intr, permissive,
                    permissive_depth, verbose, iterate=True)
         if not next(out):
             return [False, [fcrn, icrn] + next(out)]
@@ -1207,80 +1211,3 @@ def testModules(fcrns, icrns, fs, interpretation, ispCommon=None,
     else:
         return [True, interpretation]
 
-if __name__ == "__main__":
-    import sys
-    import argparse
-    from nuskell import __version__
-    from dsdobjects.utils import natural_sort
-    from nuskell.crnutils import parse_crn_file, parse_crn_string
-    from nuskell.crnutils import split_reversible_reactions, genCRN
-
-    parser = argparse.ArgumentParser(
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
-    parser.add_argument("-v", "--verbose", action = 'count', default = 0,
-            help="print verbose output. -vv increases verbosity level.")
-    parser.add_argument("--formal-crn", action='store', metavar='</path/to/file>',
-            help="""Read a formal CRN from a file.""")
-    parser.add_argument("--implementation-crn", action='store', metavar='</path/to/file>',
-            help="""Read an implementation CRN from a file.""")
-    parser.add_argument("--interpretation", action='store', metavar='</path/to/file>',
-            help="""Read an interpretation (CRN format) from a file.""")
-    args = parser.parse_args()
-
-    log.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s %(message)s')
-    ch.setFormatter(formatter)
-    if args.verbose == 0:
-        ch.setLevel(logging.WARNING)
-    elif args.verbose == 1:
-        ch.setLevel(logging.INFO)
-    elif args.verbose == 2:
-        ch.setLevel(logging.DEBUG)
-    elif args.verbose >= 3:
-        ch.setLevel(logging.NOTSET)
-    log.addHandler(ch)
-
-    log.info('Input formal CRN:')
-    fcrn, fs = parse_crn_file(args.formal_crn)
-    [log.info('    ' + r) for r in genCRN(fcrn, rates = False)]
-    log.info('... with formal species: {}'.format(natural_sort(fs)))
-
-    log.info('Input interpretation CRN:')
-    icrn, _ = parse_crn_file(args.implementation_crn)
-    [log.info('    ' + r) for r in genCRN(icrn, rates = False)]
-
-    ## Previous __main__ example:
-    #fcrn, fs = parse_crn_string("a -> b")
-    #icrn, _ = parse_crn_string("""
-    #                           a1 -> b1
-    #                           x -> a1
-    #                           x -> b1
-    #                           y -> b1
-    #                           y -> a1
-    #                           x -> a0
-    #                           a0 -> a1
-    #                           """)
-
-    inter = None
-    if args.interpretation:
-        log.info('Input interpretation:')
-        inte, _ = parse_crn_file(args.interpretation)
-        inter = dict()
-        for rxn in inte:
-            assert len(rxn[0]) == 1
-            inter[rxn[0][0]] = Counter(rxn[1])
-        [log.info('  {}: {}'.format(k,v)) for (k, v) in natural_sort(inter.items())]
-
-    # Preprocessing
-    fcrn = split_reversible_reactions(fcrn)
-    fcrn = [[Counter(part) for part in rxn[:2]] for rxn in fcrn]
-    icrn = split_reversible_reactions(icrn)
-    icrn = [[Counter(part) for part in rxn[:2]] for rxn in icrn]
-
-    v, i = test(fcrn, icrn, set(fs), 
-                interpretation = inter, 
-                permissive = 'whole-graph')
-
-    print('equivalent', v, i)

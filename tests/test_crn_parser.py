@@ -1,112 +1,216 @@
-#!/usr/bin/env python
 #
-#  test_crn_parser.py
-#  NuskellCompilerProject
+# tests/test_crn_parser.py
 #
-from __future__ import absolute_import, division, print_function
+# Written by Stefan Badelt (badelt@caltech.edu).
+#
 
 import unittest
-from nuskell.crnutils import parse_crn_string, split_reversible_reactions, Reaction
-
+from pyparsing import ParseException
+from crnverifier.crn_parser import parse_crn_string
 
 class TestCRNparser(unittest.TestCase):
-    def setUp(self):
-        pass
+    def test_concentration_specs(self):
+        input_string = """
+        # Default concentrations
+        A @ initial 50
+        B @ constant 50
+        C @ constant 10
 
-    def tearDown(self):
-        pass
+        # Reactions
+        A + B -> C
+        """
+        output_unprocessed = [['concentration', ['A'], ['initial'], ['50']],
+                              ['concentration', ['B'], ['constant'], ['50']],
+                              ['concentration', ['C'], ['constant'], ['10']],
+                              ['irreversible', [['A'], ['B']], [['C']]]]
 
-    def test_parse_reaction_string(self):
-        """ Testing crn string parser """
-        crn = "A+B->X+Y"
-        pcrn = [Reaction(['A', 'B'], ['X', 'Y'], 1, 0)]
-        pfs = {'A': (None, None), 'X': (None, None), 'B': (None, None), 'Y': (None, None)}
-        ecrn, efs = parse_crn_string(crn)
+        self.assertEqual(parse_crn_string(input_string, process=False), output_unprocessed)
 
-        self.assertEqual(ecrn, pcrn, 'single chemical reaction 1a')
-        self.assertEqual(sorted(efs), sorted(pfs), 'single chemical reaction 1b')
+        output_processed1 = [[['A', 'B'], ['C'], [1]]]
+        output_processed2 = {'A' : ('initial', 50),
+                             'B' : ('constant', 50),
+                             'C' : ('constant', 10)}
 
-        crn = "A<=>B"
-        pcrn = [Reaction(['A'], ['B'], 1, 1)]
-        pfs = {'A': (None, None), 'B': (None, None)}
-        ecrn, efs = parse_crn_string(crn)
-        self.assertEqual(ecrn, pcrn, 'single chemical reaction 2a')
-        self.assertEqual(sorted(efs), sorted(pfs), 'single chemical reaction 2b')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
+ 
+        input_string = "A@i50; B@c20; A + B -> C [k = 77]; <=> C [kf = 18, kr = 77]"
+        output_unprocessed = [['concentration', ['A'], ['i'], ['50']],
+                              ['concentration', ['B'], ['c'], ['20']],
+                              ['irreversible', [['A'], ['B']], [['C']], ['77']],
+                              ['reversible', [], [['C']], ['18', '77']] ]
 
-        crn = "->X"
-        pcrn = [Reaction([], ['X'], 1, 0)]
-        pfs = {'X': (None, None)}
-        ecrn, efs = parse_crn_string(crn)
-        self.assertEqual(ecrn, pcrn, 'single chemical reaction 3a')
-        self.assertEqual(sorted(efs), sorted(pfs), 'single chemical reaction 3b')
+        self.assertEqual(parse_crn_string(input_string, process=False), output_unprocessed)
 
-        crn = "B->"
-        pcrn = [Reaction(['B'], [], 1, 0)]
-        pfs = {'B': (None, None)}
-        ecrn, efs = parse_crn_string(crn)
-        self.assertEqual(ecrn, pcrn, 'single chemical reaction 4a')
-        self.assertEqual(sorted(efs), sorted(pfs), 'single chemical reaction 4b')
+        output_processed1 = [[['A', 'B'], ['C'], ['77']],
+                             [[],['C'],['18', '77']]]
+        output_processed2 = {'A' : ('initial', 50),
+                             'B' : ('constant', 20),
+                             'C' : ('initial', 0)}
 
-    def test_split_reversible_reactions(self):
-        crn = "A+B->X+Y\nA<=>X"
-        pcrn = [Reaction(['A', 'B'], ['X', 'Y'], 1, 0), Reaction(['A'], ['X'], 1, 1)]
-        pfs = {'A': (None, None), 'B': (None, None), 'X': (None, None), 'Y': (None, None)}
-        ecrn, efs = parse_crn_string(crn)
-        self.assertEqual(ecrn, pcrn, 'single chemical reaction 5a')
-        self.assertEqual(sorted(efs), sorted(pfs), 'single chemical reaction 5b')
-        splitcrn = [Reaction(['A', 'B'], ['X', 'Y'], 1, 0), 
-                    Reaction(['A'], ['X'], 1, 0),
-                    Reaction(['X'], ['A'], 1, 0)]
-        self.assertEqual(sorted(split_reversible_reactions(ecrn)), 
-                         sorted(splitcrn), 'split irreversible reactions')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
-    def todo_test_parse_crn_string(self):
-        # This does not work atm
-        crn = "A+B->X+Y;A<=>X;formals={A,B,X};signals={Y}"
-        res = ([[['A', 'B'], ['X', 'Y'], [1]], [['A'], ['X'], [1, 1]]], ['A', 'B', 'X', 'Y'])
-        self.assertEqual(parse_crn_string(crn), res, 'chemical reaction network 2')
+    def test_float_examples(self):
+        input_string = """
+        # Comment
+        A + B -> C [k = 0.32]
+        """
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']]]]
+        output_processed1 = [[['A', 'B'], ['C'], ['0.32']]]
+        output_processed2 = {'A' : ('initial', 0),
+                             'B' : ('initial', 0),
+                             'C' : ('initial', 0)}
+        # print parse_crn_string(input_string, process=False)
+        # print parse_crn_string(input_string)
+ 
+    def test_parse_examples(self):
+        input_string = """
+        # Comment
+        A + B -> C
+        """
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']]]]
+        output_processed1 = [[['A', 'B'], ['C'], [1]]]
+        output_processed2 = {'A' : ('initial', 0),
+                             'B' : ('initial', 0),
+                             'C' : ('initial', 0)}
+        output_processed3 = [[['A', 'B'], ['C'], [1]]]
+        output_processed4 = {'A' : (None, None),
+                             'B' : (None, None),
+                             'C' : (None, None)}
+        # print parse_crn_string(input_string, process=False)
+        # print parse_crn_string(input_string)
+        self.assertEqual(parse_crn_string(input_string, process=False), 
+                         output_unprocessed,
+                         'parse reaction unprocessed 1')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
-    def todo_test_parse_crn_string_oneline(self):
-        crn = "A+C->X+Y; Y<=>L; L -> C+A"
-        out = ([[['A', 'C'], ['X', 'Y'], [None]],
-                [['Y'], ['L'], [None, None]],
-                [['L'], ['C', 'A'], [None]]
-                ], ['A', 'C', 'L', 'X', 'Y'],
-               ['A', 'C', 'L', 'X', 'Y'], [])
-        self.assertEqual(parse_crn_string(crn), out,
-                         'oneline CRN format')
+        o3, o4 = parse_crn_string(input_string, process = True, defaultrate = 1, defaultmode = None, defaultconc = None)
+        self.assertEqual(o3, output_processed3)
+        self.assertEqual(o4, output_processed4)
 
-        crn = "A+C->X+Y; formals={A1, A2, B2}"
-        out = ([[['A', 'C'], ['X', 'Y'], [None]]],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X', 'Y'],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X', 'Y'], [])
-        self.assertEqual(parse_crn_string(crn), out, 'oneline CRN format')
+        input_string = """A + B -> C [k = 10.8]"""
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['10.8']]]
+        output_processed1 = [[['A', 'B'], ['C'], ['10.8']]]
+        self.assertEqual(parse_crn_string(input_string, process=False),
+                         output_unprocessed,
+                         'parse reaction unprocessed 2')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
-        crn = "A+C->X+X; formals={A1, A2, B2}"
-        out = ([[['A', 'C'], ['X', 'X'], [None]]],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X'],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X'], [])
-        self.assertEqual(parse_crn_string(crn), out, 'oneline CRN format')
+        input_string = """A + B -> C [k = 8]"""
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['8']]]
+        output_processed1 = [[['A', 'B'], ['C'], ['8']]]
+        self.assertEqual(parse_crn_string(input_string, process=False),
+                         output_unprocessed,
+                         'parse reaction unprocessed 3')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
-        crn = "A+C->2X; formals={A1, A2, B2}"
-        out = ([[['A', 'C'], ['X', 'X'], [None]]],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X'],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X'], [])
-        self.assertEqual(parse_crn_string(crn), out, 'oneline CRN format')
+        with self.assertRaises(ParseException):
+            # Only one rate specified for reversible reaction
+            parse_crn_string("A <=> C [k=14]")
 
-        crn = "A+C->X+Y; formals={A1, A2, B2, X, Y}; fuels={}"
-        out = ([[['A', 'C'], ['X', 'Y'], [None]]],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X', 'Y'],
-               ['A', 'A1', 'A2', 'B2', 'C', 'X', 'Y'], [])
-        self.assertEqual(parse_crn_string(crn), out, 'oneline CRN format')
+    def test_duplicate_input(self):
+        input_string = """ # Allowing duplicate specification!
+        A + B -> C
+        A + B <=> C
+        """
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']]], 
+                              ['reversible', [['A'], ['B']], [['C']]]]
+        output_processed1 = [[['A', 'B'], ['C'], [1]], 
+                            [['A', 'B'], ['C'], [1, 1]]]
+        output_processed2 = {'A' : ('initial', 0),
+                             'B' : ('initial', 0),
+                             'C' : ('initial', 0)}
+        self.assertEqual(parse_crn_string(input_string, process=False),
+                         output_unprocessed,
+                         'parse reaction unprocessed 4')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
-        crn = "A+C->X+Y; Y<=>L; L->C+A; formals={A, x, y}; signals={L, C}"
-        out = ([
-            [['A', 'C'], ['X', 'Y'], [None]],
-            [['Y'], ['L'], [None, None]],
-            [['L'], ['C', 'A'], [None]]
-        ], ['A', 'C', 'L', 'X', 'Y', 'x', 'y'], ['C', 'L'], [])
-        self.assertEqual(parse_crn_string(crn), out, 'oneline CRN format')
+        input_string = """
+        # Comment
+        A + B -> C [k = 18]
+        A + B <=> C [kf = 99, kr = 77]
+        """
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['18']], 
+                              ['reversible', [['A'], ['B']], [['C']], ['99', '77']]]
+        output_processed1 = [[['A', 'B'], ['C'], ['18']], 
+                            [['A', 'B'], ['C'], ['99', '77']]]
+        self.assertEqual(parse_crn_string(input_string, process=False),
+                         output_unprocessed,
+                         'parse reaction unprocessed 5')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+
+        input_string = """
+        # Comment
+        A + B -> C [18]
+        A + B <=> C [99, 77]
+        """
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['18']], 
+                              ['reversible', [['A'], ['B']], [['C']], ['99', '77']]]
+        output_processed1 = [[['A', 'B'], ['C'], ['18']], 
+                            [['A', 'B'], ['C'], ['99', '77']]]
+        self.assertEqual(parse_crn_string(input_string, process=False),
+                         output_unprocessed,
+                         'parse reaction unprocessed 5')
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+
+        input_string = "A + B -> C + X [0.48]; X + A <=> C + L [0.89, 0.87]"
+        exp1 = [[['A', 'B'], ['C', 'X'], ['0.48']], [['X', 'A'], ['C', 'L'], ['0.89', '0.87']]]
+        exp2 = {'A': ('initial', 0), 'B': ('initial', 0), 'C': ('initial', 0), 'X': ('initial', 0), 'L': ('initial', 0)}
+
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, exp1)
+
+
+    def test_multiple_species(self):
+        input_string = """5A -> 3B + 2C"""
+        output_processed1 = [[['A', 'A', 'A', 'A', 'A'], 
+                             ['B', 'B', 'B', 'C', 'C'], [1]]]
+        output_processed2 = {'A' : ('initial', 0),
+                             'B' : ('initial', 0),
+                             'C' : ('initial', 0)}
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
+
+        input_string = """
+        A + B -> C [k = 77]; <=> C [kf = 18, kr = 77]
+        X + 2Y <=> Z
+        """
+        output_processed1 = [[['A', 'B'], ['C'], ['77']], [[], ['C'], ['18', '77']], 
+                            [['X', 'Y', 'Y'], ['Z'], [1, 1]]]
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+
+        input_string = """2Na + Cl2 <=> 2NaCl"""
+        output_processed1 = [[['Na', 'Na', 'Cl2'], ['NaCl', 'NaCl'], [1, 1]]]
+        output_processed2 = {'Na' : ('initial', 0),
+                             'Cl2' : ('initial', 0),
+                             'NaCl' : ('initial', 0)}
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
+
+        input_string = """N2 + 3H2 <=> 2NH3"""
+        output_processed1 = [[['N2', 'H2', 'H2', 'H2'], ['NH3', 'NH3'], [1, 1]]]
+        output_processed2 = {'N2' : ('initial', 0),
+                             'H2' : ('initial', 0),
+                             'NH3' : ('initial', 0)}
+        o1, o2 = parse_crn_string(input_string)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
 
 
 if __name__ == '__main__':

@@ -1,36 +1,23 @@
-#!/usr/bin/env python
 #
-#  nuskell/verifier/verifier.py
-#  NuskellCompilerProject
+#  crnverifier/pathway_decomposition.py
+#  Original source from the Nuskell compiler project
 #
-# Copyright (c) 2009-2020 Caltech. All rights reserved.
-# Written by Seung Woo Shin (seungwoo.theory@gmail.com).
-#            Stefan Badelt (bad-ants-fleet@posteo.eu)
+#  Authors:
+#   - Seung Woo Shin (seungwoo.theory@gmail.com)
+#   - Stefan Badelt (bad-ants-fleet@posteo.eu)
 #
 import logging
 log = logging.getLogger(__name__)
 
 from itertools import chain
 from collections import Counter
-
-from nuskell.crnutils import (parse_crn_file, 
-                              parse_crn_string, 
-                              split_reversible_reactions,
-                              assign_crn_species)
+from .utils import assign_crn_species, pretty_crn, pretty_rxn, natural_sort
 
 class NoFormalBasisError(Exception):
     pass
 
 class BasisFinderError(Exception):
     pass
-
-def pretty_rxn(rxn):
-    return '{} -> {}'.format(' + '.join(sorted(rxn[0])), 
-                             ' + '.join(sorted(rxn[1])))
-
-def pretty_crn(crn):
-    for rxn in crn:
-        yield pretty_rxn(rxn)
 
 def clean_crn(crn, duplicates = True, trivial = True, inter = None):
     """Takes a crn and removes trivial / duplicate reactions. """
@@ -522,7 +509,7 @@ def crn_properties(crn, fs):
     log.debug('Branching Factors: b = {}, iR = {}, fRiR = {}'.format(b, iR, fRiR))
     return b, iR, fRiR, nw if linear else None
 
-def get_formal_basis(crn, fs, inter = None): # former "enumerate_basis"
+def enumerate_basis(crn, fs, inter = None):
     """ Find the formal basis of a CRN.
 
     Args:
@@ -707,7 +694,7 @@ def get_crn_modules(crn, intermediates):
             i += 1
     return [v for v in division.values() if len(v) > 0]
 
-def find_basis(crn, fs, modular = True, interpretation = None):
+def get_formal_basis(crn, fs, modular = True, interpretation = None):
     """Finds all formal reactions in a CRN.
     
     STW2019 - Def13: The set of prime pathways in a given CRN is called the
@@ -727,8 +714,17 @@ def find_basis(crn, fs, modular = True, interpretation = None):
         basis_raw, basis_int: The formal basis found without and with an 
             interpretation dictionary. 
     """
+
+    intermediates, wastes, reactive_waste = assign_crn_species(crn, fs)
+    if len(wastes):
+        if len(reactive_waste):
+            log.warning('Reactive waste species detected: ' + \
+                        f'{{{", ".join(natural_sort(reactive_waste))}}}')
+        log.info(f'{len(wastes)} waste species are treated as formal: ' + \
+                 f'{{{", ".join(natural_sort(wastes))}}}')
+        fs |= wastes
+ 
     if modular:
-        intermediates, wastes, _ = assign_crn_species(crn, fs)
         divs = sorted(get_crn_modules(crn, intermediates), key = lambda x: len(x))
         log.info(f"Divided the implementation CRN into {len(divs)} modules " + \
                 f"with {[len(d) for d in divs]} reactions.")
@@ -737,7 +733,7 @@ def find_basis(crn, fs, modular = True, interpretation = None):
         for e, mod in enumerate(divs, 1):
             log.info("Verifying module {}:".format(e))
             [log.info(f'    {r}') for r in pretty_crn(mod)]
-            b_raw, b_int = get_formal_basis(mod, fs, inter = interpretation)
+            b_raw, b_int = enumerate_basis(mod, fs, inter = interpretation)
             log.info("Formal basis of the current module:")
             [log.info('    {}'.format(r)) for r in pretty_crn(b_raw)]
             if interpretation is not None:
@@ -747,116 +743,45 @@ def find_basis(crn, fs, modular = True, interpretation = None):
             basis_raw += b_raw
             basis_int += b_int
     else:
-        basis_raw, basis_int = get_formal_basis(crn, fs, inter = interpretation)
+        basis_raw, basis_int = enumerate_basis(crn, fs, inter = interpretation)
 
     return clean_crn(basis_raw), clean_crn(basis_int)
 
-def my_parse_crn(string, is_file = False):
-    crn, species = parse_crn_file(string) if is_file else parse_crn_string(string)
-    crn = split_reversible_reactions(crn)
-    crn = [list(rxn[:2]) for rxn in crn]
-    return crn, set(species.keys())
+def pathway_decomposition_equivalence_test(crns, fs, modular = True):
+    """ Test two CRNs for pathway equivalence.
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
-    parser.add_argument("-v", "--verbose", action = 'count', default = 0,
-            help="print verbose output. -vv increases verbosity level.")
-    parser.add_argument("--crn-file", action='store', metavar='</path/to/file>',
-            help="""Read a CRN from a file.""")
-    parser.add_argument("--formal-species", nargs = '+', default = [], 
-            action = 'store', metavar = '<str>', 
-            help="""List formal species in the CRN.""")
-    parser.add_argument("--fuel-species", nargs = '+', default = [], 
-            action = 'store', metavar = '<str>', 
-            help="""List fuel species in the CRN.""")
-    parser.add_argument("--non-modular", action = 'store_true',
-            help="""Do not attempt to split into smaller CRN modules.""")
-    parser.add_argument("--integrated", action = 'store_true',
-            help="""Use interpretation when finding formal basis.""")
-    parser.add_argument("--profile", action = 'store_true',
-            help="""Get some code profiling information (requires statprof-smarkets).""")
-    args = parser.parse_args()
-
-    if args.profile:
+    Args:
+        crns: List of one or more CRNs.
+        fs: Set of formal species.
+    Returns:
+        True: if formal basis of all crns is equivalent
+        False: otherwise
+    """
+    v, last_basis = None, None
+    inter = None
+    for e, crn in enumerate(crns, 1):
+        _, wastes, reactive_waste = assign_crn_species(crn, fs)
+        if len(reactive_waste):
+            log.warning('Reactive waste species detected: ' + \
+                        f'{{{", ".join(natural_sort(reactive_waste))}}}')
+        if len(wastes):
+            log.info(f'{len(wastes)} waste species are treated as formal: ' + \
+                     f'{{{", ".join(natural_sort(wastes))}}}')
+            inter = {w: [] for w in wastes}
         try:
-            import statprof
-        except ImportError as err:
-            print('Cannot import statprof module.')
-            args.profile = False
+            fbasis, _ = get_formal_basis(crn, fs | wastes, modular = modular)
+        except NoFormalBasisError as err:
+            log.info("Could not find formal basis: {}".format(err))
+            return False
 
-    def remove_const(crn, const):
-        for rxn in crn:
-            for x in const:
-                while x in rxn[0]:
-                    rxn[0].remove(x)
-                while x in rxn[1]:
-                    rxn[1].remove(x)
-        return crn
-
-    log.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s %(message)s')
-    ch.setFormatter(formatter)
-    if args.verbose == 0:
-        ch.setLevel(logging.WARNING)
-    elif args.verbose == 1:
-        ch.setLevel(logging.INFO)
-    elif args.verbose == 2:
-        ch.setLevel(logging.DEBUG)
-    elif args.verbose >= 3:
-        ch.setLevel(logging.NOTSET)
-    log.addHandler(ch)
-
-    crn, fs = my_parse_crn(args.crn_file, is_file = True)
-
-    if args.fuel_species:
-        crn = remove_const(crn, args.fuel_species)
-
-    if args.formal_species:
-        fs &= set(args.formal_species)
-
-    log.info('Input formal species: {}'.format(fs))
-    log.info('Input fuel species: {}'.format(args.fuel_species))
-    log.info('Input CRN (without fuel species):')
-    [log.info('    ' + r) for r in pretty_crn(crn)]
-
-    _, wastes, reactive_waste = assign_crn_species(crn, fs)
-    if len(reactive_waste):
-        log.warning(f'Reactive waste species detected: {reactive_waste}')
-    log.info(f'{len(wastes)} waste species are treated as formal: ({", ".join(wastes)})')
-
-    inter = {}
-    for x in fs: inter[x] = [x]
-    for x in wastes: inter[x] = []
-
-    try:
-        if args.profile:
-            statprof.start()
-        basis_raw, basis_int = find_basis(crn, fs | wastes, 
-                                modular = not args.non_modular,
-                                interpretation = inter if args.integrated else None)
-        if args.profile:
-            statprof.stop()
-
-        if basis_raw == []:
-            print("The formal basis is an empty set of reactions.")
-        else:
-            print("Formal basis:")
-            for r in pretty_crn(basis_raw):
-                print(r)
-            if args.integrated:
-                print("Integrated hybrid basis:")
-                for r in pretty_crn(basis_int):
-                    print(r)
-    except NoFormalBasisError as err:
-        print("Could not find formal basis: {}".format(err))
-
-    if args.profile:
-        statprof.display()
-
-if __name__ == "__main__":
-    main()
+        log.info('Formal basis {}:\n  {}'.format(e, "\n  ".join(pretty_crn(fbasis))))
+        if inter is not None:
+            fbasis = clean_crn(fbasis, inter = inter)
+        if last_basis is not None:
+            v = sorted(last_basis) == sorted(fbasis)
+            if v is False:
+                log.info(f"The CRNs {e-1} and {e} are not pathway-decomposition equivalent.")
+                return False
+        last_basis = fbasis
+    return True
 

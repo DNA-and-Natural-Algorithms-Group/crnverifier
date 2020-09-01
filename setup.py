@@ -7,8 +7,8 @@ with open("README.md", "r") as fh:
 
 setup(
     name = 'crnverifier',
-    version = '0.2',
-    description = 'Test equivalence of CRNs, or the correctness of an implementation CRN with respect to a formal CRN.',
+    version = '0.1',
+    description = 'Verify the equivalence of chemical reaction networks (CRNs), or the correctness of an implementation CRN with respect to a formal CRN.',
     long_description = LONG_DESCRIPTION,
     author = 'Stefan Badelt, Seung Woo Shin, Robert Johnson, Qing Dong, Erik Winfree',
     author_email = 'winfree@caltech.edu',
@@ -18,13 +18,12 @@ setup(
         'Development Status :: 4 - Beta',
         'Programming Language :: Python :: 3',
         ],
-    install_requires = ['pyparsing'],
+    #install_requires = ['pyparsing'],
     test_suite = 'tests',
     packages = ['crnverifier'],
     entry_points = {
         'console_scripts': [
-            'crnverifier=crnverifier.verify:main'
+            'crnverifier=crnverifier.verifier:main'
             ],
         }
 )
-

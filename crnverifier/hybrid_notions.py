@@ -1,22 +1,104 @@
 #
-#  nuskell/verifier/crn_pathway_equivalence.py
-#  NuskellCompilerProject
+#  crnverifier/hybrid_notions.py
+#  Original source from the Nuskell compiler project
 #
-# Copyright (c) 2009-2020 Caltech. All rights reserved.
-# Written by Seung Woo Shin (seungwoo.theory@gmail.com).
-#            Stefan Badelt (stefan.badelt@gmail.com)
+#  Authors:
+#   - Seung Woo Shin (seungwoo.theory@gmail.com)
+#   - Stefan Badelt (bad-ants-fleet@posteo.eu)
 #
 import logging
 log = logging.getLogger(__name__)
 
+from itertools import chain
 from collections import Counter
 
-# TODO: It would be nicer to have clean_crn as part of crnutils ...
-from nuskell.crnutils import genCRN, assign_crn_species
-from nuskell.verifier.basis_finder import find_basis, NoFormalBasisError, clean_crn
-from nuskell.verifier.crn_bisimulation_equivalence import test as get_crn_bisimulation
+from .utils import assign_crn_species, pretty_crn, natural_sort
+from .pathway_decomposition import get_formal_basis, NoFormalBasisError, clean_crn
+from .crn_bisimulation import crn_bisimulation_test
 
-def test(c1, c2, inter, compositional = False, integrated = False):
+def integrated_hybrid_test(*kargs):
+    return integrated_hybrid_dev1(*kargs)
+
+def compositional_hybrid_test(*kargs):
+    return compositional_hybrid_dev1(*kargs)
+
+def integrated_hybrid_dev1(fcrn, icrn, fs, inter, modular):
+    # SWS implementation
+    fcrn = clean_crn(fcrn)
+    icrn = clean_crn(icrn)
+
+    # Note: if inter provides interpretations for non-signal species, that's ok here.
+    # They will be used as formal species when finding the formal basis.
+    fs2 = list(chain(*inter.values()))
+    assert all(x in fs2 for x in fs) 
+
+    # Interpret waste species as nothing.
+    intermediates, wastes, reactive_waste = assign_crn_species(icrn, set(inter.keys()))
+    if len(reactive_waste):
+        log.warning(f'Reactive waste species detected: {reactive_waste}')
+    if len(wastes):
+        log.warning(f'{len(wastes)} waste species are treated as formal: ({", ".join(wastes)})')
+        for x in wastes: 
+            inter[x] = []
+
+    log.debug('Formal CRN with formal species: {}\n  {}'.format(
+        ", ".join(natural_sort(fs)),
+        "\n  ".join(pretty_crn(fcrn))))
+    log.debug('Implementation CRN with formal species: {}\n  {}'.format(
+        ", ".join(natural_sort(inter.keys())),
+        "\n  ".join(pretty_crn(icrn))))
+    log.debug('Implementation CRN after interpretateion:\n  {}'.format(
+        "\n  ".join(pretty_crn(clean_crn(icrn, inter = inter)))))
+
+    try:
+        log.debug(f'Formal species to find basis: {set(inter.keys())}')
+        fbasis_raw, fbasis_int = get_formal_basis(icrn, set(inter.keys()), modular = modular, interpretation = inter)
+    except NoFormalBasisError as err:
+        log.info("Could not find formal basis: {}".format(err))
+        return False
+
+    log.debug('Raw formal basis:\n  {}'.format("\n  ".join(pretty_crn(fbasis_raw))))
+    log.debug('Interpreted formal basis:\n  {}'.format("\n  ".join(pretty_crn(fbasis_int))))
+    return sorted(fcrn) == sorted(clean_crn(fbasis_int))
+
+def compositional_hybrid_dev1(fcrn, icrn, fs, inter):
+    # SWS implementation
+    fcrn = clean_crn(fcrn)
+    icrn = clean_crn(icrn)
+
+    # Note: if inter provides interpretations for non-signal species, that's ok here.
+    # They will be used as formal species when finding the formal basis.
+    fs2 = list(chain(*inter.values()))
+    assert all(x in fs2 for x in fs) 
+
+    # Interpret waste species as nothing.
+    intermediates, wastes, reactive_waste = assign_crn_species(icrn, set(inter.keys()))
+    if len(reactive_waste):
+        log.warning(f'Reactive waste species detected: {reactive_waste}')
+    if len(wastes):
+        log.warning(f'{len(wastes)} waste species are treated as formal: ({", ".join(wastes)})')
+        for x in wastes: 
+            inter[x] = []
+
+    log.debug('Formal CRN with formal species: {}\n  {}'.format(
+        ", ".join(natural_sort(fs)),
+        "\n  ".join(pretty_crn(fcrn))))
+    log.debug('Implementation CRN with formal species: {}\n  {}'.format(
+        ", ".join(natural_sort(inter.keys())),
+        "\n  ".join(pretty_crn(icrn))))
+
+    try:
+        log.debug(f'Formal species to find basis: {set(inter.keys())}')
+        fbasis_raw, _ = get_formal_basis(icrn, set(inter.keys()), modular = modular)
+    except NoFormalBasisError as err:
+        log.info("Could not find formal basis: {}".format(err))
+        return False
+
+    log.debug('Raw formal basis:\n  {}'.format("\n  ".join(pretty_crn(fbasis_raw))))
+    return sorted(fcrn) == sorted(clean_crn(fbasis_raw, inter = inter))
+
+
+def hybrid(c1, c2, inter, compositional = False, integrated = False):
     """ Test two CRNs for pathway equivalence.
 
     Args:
@@ -73,7 +155,7 @@ def test(c1, c2, inter, compositional = False, integrated = False):
 
     try:
         log.debug(f'Formal species to find basis: {fs2 | wastes}')
-        fbasis_raw, fbasis_int = find_basis(crn2, fs2 | wastes, modular = True,
+        fbasis_raw, fbasis_int = get_formal_basis(crn2, fs2 | wastes, modular = True,
                                             interpretation = inter if integrated else None)
     except NoFormalBasisError as err:
         log.info("Could not find formal basis: {}".format(err))
@@ -108,62 +190,4 @@ def test(c1, c2, inter, compositional = False, integrated = False):
     # Pure CRN pathway decomposition or *new* integrated implementation.
     return sorted(crn1) == sorted(fbasis_raw)
 
-if __name__ == "__main__":
-    import sys
-    import argparse
-    from nuskell import __version__
-    from nuskell.crnutils import parse_crn_file, split_reversible_reactions, genCRN
-
-    parser = argparse.ArgumentParser(
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
-    parser.add_argument("-v", "--verbose", action = 'count', default = 0,
-            help="print verbose output. -vv increases verbosity level.")
-    parser.add_argument("--crn-file", action='store', metavar='</path/to/file>',
-            help="""Read a CRN from a file.""")
-    parser.add_argument("--formal-species", nargs = '+', default = [], 
-            action = 'store', metavar = '<str>', 
-            help="""List formal species in the CRN.""")
-    parser.add_argument("--fuel-species", nargs = '+', default = [], 
-            action = 'store', metavar = '<str>', 
-            help="""List fuel species in the CRN.""")
-    parser.add_argument("--non-modular", action = 'store_true',
-            help="""Do not optimize using CRN modules.""")
-    args = parser.parse_args()
-
-    if interactive:
-        print("Enter formal species along with its interpretation:")
-        print("(e.g. i187 -> A + B)")
-        print("When done, press ctrl + D.")
-        for line in sys.stdin:
-            z = list(map(lambda x: x.strip(), line.split("->")))
-            y1 = z[0]
-            y2 = list(map(lambda x: x.strip(), z[1].split("+")))
-            if y1[0] == "i" or y1[0] == "w": y1 = y1[1:]
-            inter[y1] = y2
-            fs2.add(y1)
-        print()
-
-    def remove_const(crn, const):
-        for rxn in crn:
-            for x in const:
-                while x in rxn[0]:
-                    rxn[0].remove(x)
-                while x in rxn[1]:
-                    rxn[1].remove(x)
-        return crn
-
-    log.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s %(message)s')
-    ch.setFormatter(formatter)
-    if args.verbose == 0:
-        ch.setLevel(logging.WARNING)
-    elif args.verbose == 1:
-        ch.setLevel(logging.INFO)
-    elif args.verbose == 2:
-        ch.setLevel(logging.DEBUG)
-    elif args.verbose >= 3:
-        ch.setLevel(logging.NOTSET)
-    log.addHandler(ch)
 
