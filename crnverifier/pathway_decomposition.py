@@ -747,7 +747,7 @@ def get_formal_basis(crn, fs, modular = True, interpretation = None):
 
     return clean_crn(basis_raw), clean_crn(basis_int)
 
-def pathway_decomposition_equivalence_test(crns, fs, modular = True):
+def pathway_decomposition_eq(crns, fs, modular = True):
     """ Test two CRNs for pathway equivalence.
 
     Args:

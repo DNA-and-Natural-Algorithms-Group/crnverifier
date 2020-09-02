@@ -19,7 +19,7 @@ from crnverifier.utils import (parse_crn,
 from crnverifier.crn_bisimulation import crn_bisimulation_test
 from crnverifier.pathway_decomposition import (NoFormalBasisError, 
                                                get_formal_basis, 
-                                               pathway_decomposition_equivalence_test)
+                                               pathway_decomposition_eq)
 from crnverifier.hybrid_notions import (integrated_hybrid_test,
                                         compositional_hybrid_test)
 
@@ -185,17 +185,11 @@ def main():
                                                     args.interpretation,
                                                     args.constant_species)
         if args.method == 'crn-bisimulation':
-            fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-            icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-            if inter:
-                inter = {k : Counter(v) for k, v in inter.items()}
             v = limit_runtime(args.verify_timeout,
                               crn_bisimulation_test,
                               fcrn, icrn, fs, 
                               interpretation = inter, 
                               permissive = args.permissive_check)
-            if v is not None: 
-                v, i = v
         elif args.method == 'compositional-hybrid':
             v = limit_runtime(args.verify_timeout,
                               compositional_hybrid_test,
@@ -209,14 +203,17 @@ def main():
                               fcrn, icrn, fs, inter, 
                               not args.non_modular)
 
+        # Unpack the verification results if it wasn't a timeout.
+        (v, i) = (None, None) if v is None else v
+
         if v is True:
-            print(f"Verification result: {v} -",
-                  f"The implementation CRN is a correct {args.method} of the formal CRN.")
+            print(f"Verification result for {args.method} = {v}.",
+                  f"The implementation CRN is a correct implementation of the formal CRN.")
         elif v is False:
-            print(f"Verification result: {v} -",
-                  f"The implementation CRN is not a correct {args.method} of the formal CRN.")
+            print(f"Verification result for {args.method} = {v}.",
+                  f"The implementation CRN is not a correct implementation of the formal CRN.")
         elif v is None:
-            print(f"No verification result: {v} -",
+            print(f"No verification result for {args.method}.",
                   f"Verification did not terminate within {args.verify_timeout} seconds.")
 
     elif args.method in ('formal-basis', 'pathway-decomposition'):
@@ -229,9 +226,15 @@ def main():
                                                     args.constant_species)
         if args.method == 'pathway-decomposition':
             v = limit_runtime(args.verify_timeout,
-                              pathway_decomposition_equivalence_test,
+                              pathway_decomposition_eq,
                               crns, fs, not args.non_modular)
-            print(f"Verification result: {args.method} equivalent = {v}.")
+            if v is True:
+                print(f"Verification result for {args.method} = {v}. The CRNs are equivalent.")
+            elif v is False:
+                print(f"Verification result for {args.method} = {v}. The CRNs are not equivalent.")
+            elif v is None:
+                print(f"No verification result for {args.method}.",
+                      f"Verification did not terminate within {args.verify_timeout} seconds.")
         elif args.method == 'formal-basis':
             for e, crn in enumerate(crns, 1):
                 try:
@@ -240,11 +243,11 @@ def main():
                                       crn, fs, 
                                       not args.non_modular)
 
-                    if v is not None: 
+                    if v is None: 
+                        print('Timeout, no formal basis found.')
+                    else:
                         fbasis, _ = v
                         print('Formal basis {}:\n  {}'.format(e, "\n  ".join(pretty_crn(fbasis))))
-                    else:
-                        print('Timeout, no formal basis found.')
                 except NoFormalBasisError as err:
                     print("Could not find formal basis {}: {}".format(e, err))
     else:

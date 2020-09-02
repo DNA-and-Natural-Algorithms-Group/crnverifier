@@ -1132,6 +1132,12 @@ def crn_bisimulation_test(fcrn, icrn, fs, interpretation = None, permissive = 'w
     # if iterate=False, should behave exactly like old test
     # if iterate=True, just return test_iter (the iterator)
     
+    # For consistency with the rest of the lib, support list input.
+    fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+    icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+    if interpretation:
+        interpretation = {k : Counter(v) for k, v in interpretation.items()}
+
     iter_out = test_iter(fcrn, icrn, fs, interpretation, permissive,
                          permissive_depth, verbose)
     if iterate:
@@ -1163,6 +1169,12 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=No
     Fixmes:
     For now, behavior is undefined if (a) any species not in ispCommon is in two or more modules, or (b) any species in ispCommon has no interpretation given
     '''
+
+    # For consistency with the rest of the lib, support list input.
+    fcrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in fcrns]
+    icrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in icrns]
+    if interpretation:
+        interpretation = {k : Counter(v) for k, v in interpretation.items()}
 
     if ispCommon is None:
         ispList = [reduce(lambda x,y: x | y, [set(rxn[0]) | set(rxn[1]) for rxn in icrn]) for icrn in icrns]

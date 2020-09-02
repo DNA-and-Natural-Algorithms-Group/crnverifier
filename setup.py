@@ -18,7 +18,7 @@ setup(
         'Development Status :: 4 - Beta',
         'Programming Language :: Python :: 3',
         ],
-    #install_requires = ['pyparsing'],
+    install_requires = ['pyparsing'],
     test_suite = 'tests',
     packages = ['crnverifier'],
     entry_points = {
