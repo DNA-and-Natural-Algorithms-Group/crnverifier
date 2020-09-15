@@ -2,9 +2,9 @@
 Are two chemical reaction networks (CRNs) the same? This package provides code
 to verify the correctness of an implementation CRN with respect to a formal CRN
 using the stochastic
-trajectory equivalence notions **CRN bisimulation** [Johnson et al. (2019)], 
-**pathway decomposition** [Shin et al.  (2019)] and preliminary implementations of 
-**compositional & integrated hybrid** [Shin et al.  (2019)].
+trajectory equivalence notions **CRN bisimulation** [[Johnson et al. (2019)]], 
+**pathway decomposition** [[Shin et al.  (2019)]] and preliminary implementations of 
+**compositional & integrated hybrid** [[Shin et al.  (2019)]].
 
 [![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/bad-ants-fleet/crnverifier)](https://github.com/bad-ants-fleet/crnverifier/tags)
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/bad-ants-fleet/crnverifier?include_prereleases)](https://github.com/bad-ants-fleet/crnverifier/releases)
