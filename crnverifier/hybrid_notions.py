@@ -10,7 +10,6 @@ import logging
 log = logging.getLogger(__name__)
 
 from itertools import chain
-from collections import Counter
 
 from .utils import assign_crn_species, pretty_crn, natural_sort
 from .pathway_decomposition import get_formal_basis, NoFormalBasisError, clean_crn
