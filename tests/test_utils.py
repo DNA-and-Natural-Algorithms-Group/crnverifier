@@ -53,4 +53,22 @@ class Test_utils(unittest.TestCase):
         assert icrn == ecrn
         assert isp == esp
 
+        crn = """
+            A <=> i; i + B1 <=> j1
+            i + B2 <=> j2
+            j1 -> C; j2 -> C
+            """
+        icrn, isp = parse_crn(crn, modular = True)
+        ecrn = [[[['A'], ['i']], 
+                 [['i'], ['A']], 
+                 [['i', 'B1'], ['j1']], 
+                 [['j1'], ['i', 'B1']]], 
+                [[['i', 'B2'], ['j2']],
+                 [['j2'], ['i', 'B2']]],
+                [[['j1'], ['C']],
+                 [['j2'], ['C']]]]
+        esp = set(['B2', 'j1', 'C', 'A', 'B1', 'j2', 'i'])
+        assert icrn == ecrn
+        assert isp == esp
+
 

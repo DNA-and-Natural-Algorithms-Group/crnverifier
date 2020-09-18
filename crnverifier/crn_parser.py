@@ -15,7 +15,7 @@ from pyparsing import (Word, Literal, Group, Suppress, Combine, Optional, ParseE
 class CRNParseError(Exception):
     pass
 
-def crn_document_setup(modular=False):
+def crn_document_setup(modular = False):
     """Parse a formal chemical reaction network.
 
     Args:
@@ -95,7 +95,13 @@ def crn_document_setup(modular=False):
     document.ignore(pythonStyleComment)
     return document
 
-def post_process(crn, defaultrate = 1, defaultmode = 'initial', defaultconc = 0):
+def flint(inp):
+    try:
+        return int(inp) if float(inp) == int(float(inp)) else float(inp)
+    except OverflowError:
+        return inp
+
+def post_process(crn, modular = False, defaultrate = 1, defaultmode = 'initial', defaultconc = 0):
     """Process a parsed CRN.
 
     Does:
@@ -124,47 +130,63 @@ def post_process(crn, defaultrate = 1, defaultmode = 'initial', defaultconc = 0)
                 flat.extend(ss)
         return flat
 
-    new = []
+    default = dict()
     species = dict()
-    for line in crn:
-        if line[0] == 'concentration':
-            spe = line[1][0]
-            ini = 'initial' if line[2][0][0] == 'i' else 'constant'
-            num = line[3][0]
-            species[spe] = (ini, float(num))
-            continue
-        elif len(line) == 3:
-            # No rate specified
-            t, r, p = line
-            r = remove_multipliers(r)
-            p = remove_multipliers(p)
-            if t == 'reversible':
-                new.append([r, p, [defaultrate, defaultrate]])
-            elif t == 'irreversible':
-                new.append([r, p, [defaultrate]])
+    def get_module(crn):
+        new = []
+        for line in crn:
+            if line[0] == 'concentration':
+                spe = line[1][0]
+                ini = 'initial' if line[2][0][0] == 'i' else 'constant'
+                num = line[3][0]
+                if spe in species:
+                    raise CRNParseError(f'Duplicate concentration specification for {spe}!')
+                species[spe] = (ini, flint(num))
+                continue
+            elif len(line) == 3:
+                # No rate specified
+                t, r, p = line
+                r = remove_multipliers(r)
+                p = remove_multipliers(p)
+                if t == 'reversible':
+                    new.append([r, p, [defaultrate, defaultrate]])
+                elif t == 'irreversible':
+                    new.append([r, p, [defaultrate]])
+                else:
+                    raise CRNParseError('Wrong CRN format!')
+            elif len(line) == 4:
+                t, r, p, k = line
+                r = remove_multipliers(r)
+                p = remove_multipliers(p)
+                k = [flint(v) for v in k]
+                if t == 'reversible':
+                    assert len(k) == 2
+                    new.append([r, p, k])
+                elif t == 'irreversible':
+                    assert len(k) == 1
+                    new.append([r, p, k])
+                else:
+                    raise CRNParseError('Wrong CRN format!')
             else:
                 raise CRNParseError('Wrong CRN format!')
-        elif len(line) == 4:
-            t, r, p, k = line
-            r = remove_multipliers(r)
-            p = remove_multipliers(p)
-            if t == 'reversible':
-                assert len(k) == 2
-                new.append([r, p, k])
-            elif t == 'irreversible':
-                assert len(k) == 1
-                new.append([r, p, k])
-            else:
-                raise CRNParseError('Wrong CRN format!')
-        else:
-            raise CRNParseError('Wrong CRN format!')
-        for s in r + p:
-            if s not in species:
-                species[s] = (defaultmode, defaultconc)
+            for s in r + p:
+                if s not in default:
+                    default[s] = (defaultmode, defaultconc)
+        return new
 
-    return new, species
+    if modular:
+        new = []
+        for module in crn:
+            mcrn = get_module(module)
+            if mcrn:
+                new.append(mcrn)
+    else:
+        new = get_module(crn)
 
-def parse_crn_file(filename, process = True, **kwargs):
+    default.update(species)
+    return new, default
+
+def parse_crn_file(filename, process = True, modular = False, **kwargs):
     """Parses a CRN from a file.
 
     Args:
@@ -176,14 +198,13 @@ def parse_crn_file(filename, process = True, **kwargs):
       species (<set()>): A set of all involved species (only when process=True)
 
     """
-    crn_document = crn_document_setup()
+    crn_document = crn_document_setup(modular)
     if process:
-        return post_process(crn_document.parseFile(
-            filename, parseAll=True).asList(), **kwargs)
+        return post_process(crn_document.parseFile(filename, parseAll=True).asList(), modular, **kwargs)
     else:
         return crn_document.parseFile(filename, parseAll=True).asList()
 
-def parse_crn_string(data, process = True, **kwargs):
+def parse_crn_string(data, process = True, modular = False, **kwargs):
     """Parses a CRN from a string.
 
     Args:
@@ -195,9 +216,9 @@ def parse_crn_string(data, process = True, **kwargs):
       species (<set()>): A set of all involved species (only when process=True)
 
     """
-    crn_document = crn_document_setup()
+    crn_document = crn_document_setup(modular)
     if process:
-        return post_process(crn_document.parseString(data).asList(), **kwargs)
+        return post_process(crn_document.parseString(data).asList(), modular, **kwargs)
     else:
         return crn_document.parseString(data).asList()
 

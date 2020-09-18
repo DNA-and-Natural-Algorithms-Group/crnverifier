@@ -1,12 +1,12 @@
 #
 # tests/test_crn_parser.py
 #
-# Written by Stefan Badelt (badelt@caltech.edu).
+# Written by Stefan Badelt (bad-ants-fleet@posteo.eu).
 #
 
 import unittest
 from pyparsing import ParseException
-from crnverifier.crn_parser import parse_crn_string
+from crnverifier.crn_parser import parse_crn_string, CRNParseError
 
 class TestCRNparser(unittest.TestCase):
     def test_concentration_specs(self):
@@ -43,8 +43,8 @@ class TestCRNparser(unittest.TestCase):
 
         self.assertEqual(parse_crn_string(input_string, process=False), output_unprocessed)
 
-        output_processed1 = [[['A', 'B'], ['C'], ['77']],
-                             [[],['C'],['18', '77']]]
+        output_processed1 = [[['A', 'B'], ['C'], [77]],
+                             [[],['C'],[18, 77]]]
         output_processed2 = {'A' : ('initial', 50),
                              'B' : ('constant', 20),
                              'C' : ('initial', 0)}
@@ -53,18 +53,23 @@ class TestCRNparser(unittest.TestCase):
         self.assertEqual(o1, output_processed1)
         self.assertEqual(o2, output_processed2)
 
+    def test_duplicate_concentration_error(self):
+        input_string = "A@i50; A@c20; A + B -> C [k = 77]; <=> C [kf = 18, kr = 77]"
+        with self.assertRaises(CRNParseError):
+            parse_crn_string(input_string)
+ 
     def test_float_examples(self):
         input_string = """
         # Comment
         A + B -> C [k = 0.32]
         """
-        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']]]]
-        output_processed1 = [[['A', 'B'], ['C'], ['0.32']]]
+        output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['0.32']]]
+        output_processed1 = [[['A', 'B'], ['C'], [0.32]]]
         output_processed2 = {'A' : ('initial', 0),
                              'B' : ('initial', 0),
                              'C' : ('initial', 0)}
-        # print parse_crn_string(input_string, process=False)
-        # print parse_crn_string(input_string)
+        assert parse_crn_string(input_string, process = False) == output_unprocessed
+        assert parse_crn_string(input_string) == (output_processed1, output_processed2)
  
     def test_parse_examples(self):
         input_string = """
@@ -80,35 +85,34 @@ class TestCRNparser(unittest.TestCase):
         output_processed4 = {'A' : (None, None),
                              'B' : (None, None),
                              'C' : (None, None)}
-        # print parse_crn_string(input_string, process=False)
-        # print parse_crn_string(input_string)
-        self.assertEqual(parse_crn_string(input_string, process=False), 
-                         output_unprocessed,
-                         'parse reaction unprocessed 1')
+        self.assertEqual(parse_crn_string(input_string, process = False), 
+                         output_unprocessed, 'parse reaction unprocessed 1')
+
         o1, o2 = parse_crn_string(input_string)
         self.assertEqual(o1, output_processed1)
         self.assertEqual(o2, output_processed2)
 
-        o3, o4 = parse_crn_string(input_string, process = True, defaultrate = 1, defaultmode = None, defaultconc = None)
+        o3, o4 = parse_crn_string(input_string, process = True, 
+                                  defaultrate = 1, 
+                                  defaultmode = None,
+                                  defaultconc = None)
         self.assertEqual(o3, output_processed3)
         self.assertEqual(o4, output_processed4)
 
         input_string = """A + B -> C [k = 10.8]"""
         output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['10.8']]]
-        output_processed1 = [[['A', 'B'], ['C'], ['10.8']]]
-        self.assertEqual(parse_crn_string(input_string, process=False),
-                         output_unprocessed,
-                         'parse reaction unprocessed 2')
+        output_processed1 = [[['A', 'B'], ['C'], [10.8]]]
+        self.assertEqual(parse_crn_string(input_string, process = False),
+                         output_unprocessed, 'parse reaction unprocessed 2')
         o1, o2 = parse_crn_string(input_string)
         self.assertEqual(o1, output_processed1)
         self.assertEqual(o2, output_processed2)
 
         input_string = """A + B -> C [k = 8]"""
         output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['8']]]
-        output_processed1 = [[['A', 'B'], ['C'], ['8']]]
+        output_processed1 = [[['A', 'B'], ['C'], [8]]]
         self.assertEqual(parse_crn_string(input_string, process=False),
-                         output_unprocessed,
-                         'parse reaction unprocessed 3')
+                         output_unprocessed, 'parse reaction unprocessed 3')
         o1, o2 = parse_crn_string(input_string)
         self.assertEqual(o1, output_processed1)
         self.assertEqual(o2, output_processed2)
@@ -143,8 +147,8 @@ class TestCRNparser(unittest.TestCase):
         """
         output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['18']], 
                               ['reversible', [['A'], ['B']], [['C']], ['99', '77']]]
-        output_processed1 = [[['A', 'B'], ['C'], ['18']], 
-                            [['A', 'B'], ['C'], ['99', '77']]]
+        output_processed1 = [[['A', 'B'], ['C'], [18]], 
+                            [['A', 'B'], ['C'], [99, 77]]]
         self.assertEqual(parse_crn_string(input_string, process=False),
                          output_unprocessed,
                          'parse reaction unprocessed 5')
@@ -158,8 +162,8 @@ class TestCRNparser(unittest.TestCase):
         """
         output_unprocessed = [['irreversible', [['A'], ['B']], [['C']], ['18']], 
                               ['reversible', [['A'], ['B']], [['C']], ['99', '77']]]
-        output_processed1 = [[['A', 'B'], ['C'], ['18']], 
-                            [['A', 'B'], ['C'], ['99', '77']]]
+        output_processed1 = [[['A', 'B'], ['C'], [18]], 
+                            [['A', 'B'], ['C'], [99, 77]]]
         self.assertEqual(parse_crn_string(input_string, process=False),
                          output_unprocessed,
                          'parse reaction unprocessed 5')
@@ -167,12 +171,11 @@ class TestCRNparser(unittest.TestCase):
         self.assertEqual(o1, output_processed1)
 
         input_string = "A + B -> C + X [0.48]; X + A <=> C + L [0.89, 0.87]"
-        exp1 = [[['A', 'B'], ['C', 'X'], ['0.48']], [['X', 'A'], ['C', 'L'], ['0.89', '0.87']]]
+        exp1 = [[['A', 'B'], ['C', 'X'], [0.48]], [['X', 'A'], ['C', 'L'], [0.89, 0.87]]]
         exp2 = {'A': ('initial', 0), 'B': ('initial', 0), 'C': ('initial', 0), 'X': ('initial', 0), 'L': ('initial', 0)}
 
         o1, o2 = parse_crn_string(input_string)
         self.assertEqual(o1, exp1)
-
 
     def test_multiple_species(self):
         input_string = """5A -> 3B + 2C"""
@@ -189,7 +192,7 @@ class TestCRNparser(unittest.TestCase):
         A + B -> C [k = 77]; <=> C [kf = 18, kr = 77]
         X + 2Y <=> Z
         """
-        output_processed1 = [[['A', 'B'], ['C'], ['77']], [[], ['C'], ['18', '77']], 
+        output_processed1 = [[['A', 'B'], ['C'], [77]], [[], ['C'], [18, 77]], 
                             [['X', 'Y', 'Y'], ['Z'], [1, 1]]]
         o1, o2 = parse_crn_string(input_string)
         self.assertEqual(o1, output_processed1)
@@ -212,6 +215,67 @@ class TestCRNparser(unittest.TestCase):
         self.assertEqual(o1, output_processed1)
         self.assertEqual(o2, output_processed2)
 
+    def test_crn_modules(self):
+        input_string = """
+        # Default concentrations
+        A @ initial 50
+        B @ constant 50
+        C @ constant 10
+
+        # Reactions
+        A + B -> C
+        """
+        output_unprocessed = [[['concentration', ['A'], ['initial'], ['50']]],
+                              [['concentration', ['B'], ['constant'], ['50']]],
+                              [['concentration', ['C'], ['constant'], ['10']]],
+                              [['irreversible', [['A'], ['B']], [['C']]]]]
+
+        self.assertEqual(parse_crn_string(input_string, process = False, modular = True), output_unprocessed)
+
+        output_processed1 = [[[['A', 'B'], ['C'], [1]]]]
+        output_processed2 = {'A' : ('initial', 50),
+                             'B' : ('constant', 50),
+                             'C' : ('constant', 10)}
+
+        o1, o2 = parse_crn_string(input_string, modular = True)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
+
+        input_string = """
+        # Default concentrations
+        A @ initial 50
+        B @ constant 50
+        C @ constant 10
+
+        # Reactions
+        A + B -> C [1e-3]
+        D + C <=> 2C
+        A + B -> C; F + C -> B
+        """
+        output_unprocessed = [[['concentration', ['A'], ['initial'], ['50']]],
+                              [['concentration', ['B'], ['constant'], ['50']]],
+                              [['concentration', ['C'], ['constant'], ['10']]],
+                              [['irreversible', [['A'], ['B']], [['C']], ['1e-3']]],
+                              [['reversible', [['D'], ['C']], [['2', 'C']]]],
+                              [['irreversible', [['A'], ['B']], [['C']]], 
+                               ['irreversible', [['F'], ['C']], [['B']]]]]
+
+        self.assertEqual(parse_crn_string(input_string, process = False, modular = True), output_unprocessed)
+
+        output_processed1 = [[[['A', 'B'], ['C'], [1e-3]]],
+                             [[['D', 'C'], ['C', 'C'], [1, 1]]],
+                             [[['A', 'B'], ['C'], [1]],
+                              [['F', 'C'], ['B'], [1]]]]
+        output_processed2 = {'A' : ('initial', 50),
+                             'B' : ('constant', 50),
+                             'C' : ('constant', 10),
+                             'D' : ('initial', 0),
+                             'F' : ('initial', 0)}
+
+        o1, o2 = parse_crn_string(input_string, modular = True)
+        self.assertEqual(o1, output_processed1)
+        self.assertEqual(o2, output_processed2)
+ 
 
 if __name__ == '__main__':
     unittest.main()

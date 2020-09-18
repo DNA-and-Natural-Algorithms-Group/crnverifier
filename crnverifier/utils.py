@@ -8,9 +8,12 @@ log = logging.getLogger(__name__)
 import re
 from .crn_parser import parse_crn_file, parse_crn_string
 
-def parse_crn(string, is_file = False):
-    crn, species = parse_crn_file(string) if is_file else parse_crn_string(string)
-    crn = split_reversible_reactions(crn)
+def parse_crn(string, is_file = False, modular = False):
+    crn, species = parse_crn_file(string, modular = modular) if is_file else parse_crn_string(string, modular = modular)
+    if modular:
+        crn = [split_reversible_reactions(m) for m in crn]
+    else:
+        crn = split_reversible_reactions(crn)
     return crn, set(species.keys())
 
 def split_reversible_reactions(crn):
