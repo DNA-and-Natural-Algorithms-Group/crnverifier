@@ -53,7 +53,7 @@ def remove_species(crn, const):
         rxn[1] = [x for x in rxn[1] if x not in const]
     return crn
 
-def assign_crn_species(crn, signals, fuels = None):
+def assign_crn_species(crn, signals):
     """ Returns types of species in a given CRN.
 
     On the types of species in an implementation CRN:
