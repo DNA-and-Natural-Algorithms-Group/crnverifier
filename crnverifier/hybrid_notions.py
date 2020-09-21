@@ -194,6 +194,5 @@ def compositional_hybrid_dev2(fcrn, icrn, fs, inter, modular = True):
     v, i = crn_bisimulation_test(fcrn, icrn, fs, 
                                  interpretation = inter, 
                                  permissive = 'whole-graph')
-    inter = {k: list(v.elements()) for k, v in inter.items()}
     return v, inter
 

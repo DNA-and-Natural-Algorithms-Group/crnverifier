@@ -27,6 +27,11 @@ def pretty_rxn(rxn, flag_internal = True):
         r, tuple) else '{}'.format(r), rxn[1].elements()))
     return '{} -> {}'.format(' + '.join(R), ' + '.join(P))
 
+def listinter(inter):
+    # For consistency with the rest of the package, 
+    # return interpretations of the format: inter[str] = list
+    return {k: list(v.elements()) for k, v in inter.items()}
+
 def deformalize(intrp, fs):
     intr = {}
     for sp in intrp:
@@ -1075,10 +1080,10 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
         yield True
         for intrpout in out:
             finter = formalize(intrpout)
-            log.info("Valid interpretation:")
-            [log.info('  {:s} -> {}'.format(k, 
+            log.debug("Valid interpretation:")
+            [log.debug('  {:s} -> {}'.format(k, 
                 ' + '.join(v.elements()))) for (k, v) in finter.items()]
-            yield finter
+            yield listinter(finter)
 
     elif verbose: #DEPRECATED, but useful information for now...
 
@@ -1115,7 +1120,7 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
         print()
 
         yield False
-        yield [formalize(intr), max_depth, permissive_failure]
+        yield [listinter(formalize(intr)), max_depth, permissive_failure]
         return
     else:
         intr, max_depth, permissive_failure = next(out)
@@ -1124,7 +1129,7 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
         #[log.info('  {:s} -> {}'.format(k, 
         #    ' + '.join(v.elements()))) for (k, v) in finter.items()]
         yield False
-        yield [fintr, max_depth, permissive_failure]
+        yield [listinter(fintr), max_depth, permissive_failure]
 
 def crn_bisimulation_test(fcrn, icrn, fs, interpretation = None, permissive = 'whole-graph',
          permissive_depth = None, verbose = False, iterate = False):
@@ -1198,9 +1203,11 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=No
                    permissive_depth, verbose, iterate=True)
         if not next(out):
             return [False, [fcrn, icrn] + next(out)]
+
         found = False
         bad = None
         for intrp in out:
+            intrp = {k : Counter(v) for k, v in intrp.items()}
             good = lambda x: moduleCond(icrn, fs, ispCommon, x)
             if good(intrp):
                 if iterate:
@@ -1221,5 +1228,5 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=No
     if iterate:
         return [True, outs]
     else:
-        return [True, interpretation]
+        return [True, listinter(interpretation)]
 

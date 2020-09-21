@@ -9,14 +9,14 @@ log = logging.getLogger(__name__)
 import sys
 import signal
 import argparse
-from collections import Counter
 
 from crnverifier import __version__
 from crnverifier.utils import (parse_crn, 
                                pretty_crn,
                                remove_species, 
                                natural_sort)
-from crnverifier.crn_bisimulation import crn_bisimulation_test
+from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
+                                          modular_crn_bisimulation_test)
 from crnverifier.pathway_decomposition import (NoFormalBasisError, 
                                                get_formal_basis, 
                                                pathway_decomposition_eq)
@@ -73,6 +73,31 @@ def get_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
             "\n  ".join('{}: {}'.format(k,v) for (k, v) in natural_sort(inter.items()))))
     return fcrn, icrn, fs, inter
 
+def get_modular_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
+    """ Helper function to parse commandline input files.
+    """
+    fcrns, fs = parse_crn(fCRN, is_file = True, modular = True)
+    fcrns = [remove_species(m, constants) for m in fcrns]
+    for e, m in enumerate(fcrns, 1):
+        log.info('Input formal CRN module: {}\n  {}'.format(e,
+            "\n  ".join(pretty_crn(m))))
+
+    icrns, _ = parse_crn(iCRN, is_file = True, modular = True)
+    icrn = [remove_species(m, constants) for m in icrns]
+    for e, m in enumerate(icrns, 1):
+        log.info('Input implementation CRN module: {}\n  {}'.format(e,
+            "\n  ".join(pretty_crn(m))))
+
+    inter = None
+    if interpretation:
+        inte, _ = parse_crn(interpretation, is_file = True)
+        assert all(len(rxn[0]) == 1 for rxn in inte)
+        inter = {rxn[0][0]: rxn[1] for rxn in inte}
+        log.info('Input interpretation:\n  {}'.format(
+            "\n  ".join('{}: {}'.format(k,v) for (k, v) in natural_sort(inter.items()))))
+    return fcrns, icrns, fs, inter
+
+
 def get_pathway_decomposition_inputs(crn_files, formals, constants):
     """ Helper function to parse commandline input files.
     """
@@ -94,12 +119,19 @@ def add_commandline_arguments(parser):
             'Arguments for pathway decomposition equivalence')
 
     parser.add_argument("method", 
-            action = 'store', metavar = 'NOTION', 
-            choices = ('crn-bisimulation', 
+            action = 'store', 
+            choices = ('crn-bisimulation', 'modular-crn-bisimulation', 
                        'pathway-decomposition', 'formal-basis', 
                        'integrated-hybrid', 
                        'compositional-hybrid'),
-            help = "Specify verification method.")
+            help = """Specify verification method.  The method
+            *modular-crn-bisimulation* requires a more constrained text input
+            format for CRNs: each module must be written on one line. For
+            example: "A + B -> C; C -> D + E" written on one line is interpeted
+            as one module composed of two reactions. If the formal CRN has n
+            modules, and the implementation CRN n+1 modules, then the last
+            implementation CRN module is assumed to implement crosstalk, i.e.
+            the corresponding formal CRN module is empty. """)
 
     parser.add_argument("--version", action = 'version', 
                         version = '%(prog)s ' + __version__)
@@ -113,9 +145,10 @@ def add_commandline_arguments(parser):
             removed before testing equivalence, 
             e.g. fuel species and waste species.""")
     parser.add_argument("--non-modular", action = 'store_true',
-            help = """Do not split CRNs into smaller modules for verification.""")
+            help = """Do not split CRNs into smaller modules when using the
+            pathway decomosition method.""")
     parser.add_argument("--profile", action = 'store_true',
-            help = "Get some code profiling information (requires statprof-smarkets).")
+            help = """Get some code profiling information (requires statprof-smarkets).""")
  
     correctness.add_argument("-f", "--formal-crn", 
             action = 'store', metavar = '</path/to/file>',
@@ -205,6 +238,39 @@ def main():
 
         # Unpack the verification results if it wasn't a timeout.
         (v, i) = (None, None) if v is None else v
+        if v is False:
+            i = i[0]
+        print(i)
+
+        if v is True:
+            print(f"Verification result for {args.method} = {v}.",
+                  f"The implementation CRN is a correct implementation of the formal CRN.")
+        elif v is False:
+            print(f"Verification result for {args.method} = {v}.",
+                  f"The implementation CRN is not a correct implementation of the formal CRN.")
+        elif v is None:
+            print(f"No verification result for {args.method}.",
+                  f"Verification did not terminate within {args.verify_timeout} seconds.")
+
+    elif args.method in ('modular-crn-bisimulation'):
+        # TODO: Interactive mode asks for input if fcrn isn't given, etc.
+        assert args.formal_crn is not None
+        assert args.implementation_crn is not None
+        fcrns, icrns, fs, inter = get_modular_bisimulation_inputs(args.formal_crn,
+                                                                  args.implementation_crn,
+                                                                  args.interpretation,
+                                                                  args.constant_species)
+        v = limit_runtime(args.verify_timeout,
+                          modular_crn_bisimulation_test,
+                          fcrns, icrns, fs, 
+                          interpretation = inter, 
+                          permissive = args.permissive_check)
+
+        # Unpack the verification results if it wasn't a timeout.
+        (v, i) = (None, None) if v is None else v
+        if v is False:
+            i = i[2]
+        print(i)
 
         if v is True:
             print(f"Verification result for {args.method} = {v}.",
