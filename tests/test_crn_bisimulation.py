@@ -14,8 +14,93 @@ from crnverifier.crn_bisimulation import crn_bisimulation_test, modular_crn_bisi
 
 SKIP_SLOW = True
 
-class BisimulationTests(unittest.TestCase):
+class HelperTests(unittest.TestCase):
+    def test_modularity_condition(self):
+        from collections import Counter
+        from crnverifier.crn_bisimulation import moduleCond
+        module = """ B <=> e101
+                     e104 -> e103 + e105
+                     e101 -> e102 + e103 + e104
+                 """
+        module = [[Counter({'B': 1}), Counter({'e101': 1})], 
+                  [Counter({'e101': 1}), Counter({'B': 1})], 
+                  [Counter({'e104': 1}), Counter({'e103': 1, 'e105': 1})],
+                  [Counter({'e101': 1}), Counter({'e102': 1, 'e103': 1, 'e104': 1})]]
+        fsc = {'A', 'B', 'C'}
+        isc = {'A', 'B', 'C'}
 
+        minter1 = {'A': Counter({'A': 1}), 
+                   'B': Counter({'B': 1}), 
+                   'C': Counter({'C': 1}), 
+                   'e101': Counter({'B': 1}),
+                   'e102': Counter(), 
+                   'e103': Counter(), 
+                   'e104': Counter({'B': 1}),
+                   'e105': Counter()} 
+        assert moduleCond(module, fsc, isc, minter1) is False
+
+        minter2 = {'A': Counter({'A': 1}), 
+                   'B': Counter({'B': 1}), 
+                   'C': Counter({'C': 1}), 
+                   'e101': Counter({'B': 1}), 
+                   'e102': Counter(),
+                   'e103': Counter(), 
+                   'e104': Counter(), 
+                   'e105': Counter()}
+        self.assertNotEqual(minter1, minter2)
+        assert moduleCond(module, fsc, isc, minter2) is True
+
+        fsc = {'B'}
+        isc = {'B'}
+        minter3 = {'B': Counter({'B': 1}), 
+                   'e101': Counter({'B': 1}), 
+                   'e102': Counter(),
+                   'e103': Counter(), 
+                   'e104': Counter({'B': 1}), 
+                   'e105': Counter()}
+        self.assertNotEqual(minter1, minter3)
+        assert moduleCond(module, fsc, isc, minter3) is False
+
+        minter4 = {'B': Counter({'B': 1}), 
+                   'e101': Counter({'B': 1}), 
+                   'e102': Counter(),
+                   'e103': Counter(), 
+                   'e104': Counter(), 
+                   'e105': Counter()}
+        self.assertNotEqual(minter3, minter4)
+        assert moduleCond(module, fsc, isc, minter4) is True
+
+    def test_modularity_condition_02(self):
+        from collections import Counter
+        from crnverifier.crn_bisimulation import moduleCond
+        module = [[Counter({'A': 1}), Counter({'e106': 1})],
+                  [Counter({'e106': 1}), Counter({'A': 1})],
+                  [Counter({'A': 1}), Counter({'e100': 1})], 
+                  [Counter({'e100': 1}), Counter({'A': 1})],
+                  [Counter({'e100': 1}), Counter({'e106': 1, 'A': 1})],
+                  [Counter({'e106': 1, 'A': 1}), Counter({'e100': 1})]]
+        fsc, isc = {'A', 'B', 'C'}, set()
+        inter = {'A': Counter({'A': 1}), 
+                 'e100': Counter({'A': 2}),
+                 'e106': Counter({'A': 1})}
+        assert moduleCond(module, fsc, isc, inter) is False
+        fsc, isc = {'A'}, {'A'}
+        inter  = {'A': Counter({'A': 1}), 
+                  'e100': Counter({'A': 2}), 
+                  'e106': Counter({'A': 1})}
+        assert moduleCond(module, fsc, isc, inter) is True
+
+        #imodule = "a + b -> c + d"
+        #fsm = set('ABCD')
+        #ism = set('abcd')
+        #minter = {'a': 'A',
+        #          'b': 'B',
+        #          'c': 'C',
+        #          'd': 'D'}
+        #x = modularity_condition(imodule, fsm, ism, minter)
+        #print(x)
+
+class BisimulationTests(unittest.TestCase):
     def test_QingDong_thesis(self):
         # An example where the choice of the permissive checker matters ...
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
@@ -39,49 +124,49 @@ class BisimulationTests(unittest.TestCase):
 
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = inter_01,
-                                     permissive = 'whole-graph')
+                                     permissive = 'graphsearch')
         self.assertTrue(v)
 
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = inter_01, 
-                                     permissive = 'depth-first')
+                                     permissive = 'reactionsearch')
         self.assertTrue(v)
 
         if not SKIP_SLOW:
             # TODO: How long approximately?
             v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                          interpretation = inter_01, 
-                                         permissive = 'loop-search')
+                                         permissive = 'loopsearch')
             self.assertTrue(v)
 
         v, _ = crn_bisimulation_test(fcrn, icrn, fs,
                                      interpretation = inter_02, 
-                                     permissive = 'whole-graph')
+                                     permissive = 'graphsearch')
         self.assertTrue(v)
 
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = inter_02, 
-                                     permissive = 'depth-first')
+                                     permissive = 'reactionsearch')
         self.assertTrue(v)
 
         v, _ = crn_bisimulation_test(fcrn, icrn, fs,
                                      interpretation = inter_02, 
-                                     permissive = 'loop-search')
+                                     permissive = 'loopsearch')
         self.assertTrue(v)
 
         if not SKIP_SLOW:
             # These tests complete in less than 10 minutes
-            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'whole-graph')
+            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
             self.assertTrue(v)
 
-            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'depth-first')
+            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'reactionsearch')
             self.assertTrue(v)
 
             # These might not even finish in an overnight run ... who knows?
-            #v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loop-search')
+            #v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
             #self.assertTrue(v)
 
-    #@unittest.skipIf(SKIP_SLOW, "skipping slow tests")
+    @unittest.skipIf(SKIP_SLOW, "skipping slow tests")
     def test_qian_roessler_bisimulation(self):
         # TODO: How long approximately?
         (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
@@ -92,20 +177,6 @@ class BisimulationTests(unittest.TestCase):
         v, i = crn_bisimulation_test(fcrn, icrn, fs, partial)
         self.assertTrue(v)
         self.assertDictEqual(partial, backup)
-
-    def test_qian_roessler_bisimulation_with_modular_interpretation(self):
-        fcrn, fs = parse_crn('tests/crns/roessler_01.crn', is_file = True)
-        icrn, _ = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
-
-        fcrns, _ = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
-        icrns, _ = parse_crn('tests/crns/icrns/roessler_qian2011_modular.crn', is_file = True, modular = True)
-
-        partial = {sp: [sp] for sp in fs}
-        v, i = modular_crn_bisimulation_test(fcrns, icrns, fs, partial, ispCommon = fs)
-        self.assertTrue(v)
-
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, interpretation = i)
-        self.assertTrue(v)
 
     def test_example_01(self):
         # A sample test to aggree on a new interface for bisimulation.
@@ -118,17 +189,17 @@ class BisimulationTests(unittest.TestCase):
 
         v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
                                      interpretation = partial,
-                                     permissive = 'whole-graph')
+                                     permissive = 'graphsearch')
         self.assertTrue(v)
 
         v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
                                      interpretation = partial,
-                                     permissive = 'loop-search')
+                                     permissive = 'loopsearch')
         self.assertTrue(v)
 
         v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
                                      interpretation = partial,
-                                     permissive = 'depth-first',
+                                     permissive = 'reactionsearch',
                                      permissive_depth = 8)
         self.assertTrue(v)
 
@@ -180,57 +251,57 @@ class BisimulationTests(unittest.TestCase):
         # Using partial inter1
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter1,
-                                      permissive = 'whole-graph')
+                                      permissive = 'graphsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter1,
-                                      permissive = 'loop-search')
+                                      permissive = 'loopsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter1,
-                                      permissive = 'depth-first')
+                                      permissive = 'reactionsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         # Using inter1
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = inter1,
-                                      permissive = 'whole-graph')
+                                      permissive = 'graphsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = inter1,
-                                      permissive = 'loop-search')
+                                      permissive = 'loopsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = inter1,
-                                      permissive = 'depth-first')
+                                      permissive = 'reactionsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
         # Using partial inter2
         v, i2 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter2,
-                                      permissive = 'whole-graph')
+                                      permissive = 'graphsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter2, i2)
 
         v, i2 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter2,
-                                      permissive = 'loop-search')
+                                      permissive = 'loopsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter2, i2)
 
         v, i2 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter2,
-                                      permissive = 'depth-first')
+                                      permissive = 'reactionsearch')
         self.assertTrue(v)
         self.assertDictEqual(inter2, i2)
 
@@ -256,14 +327,14 @@ class BisimulationTests(unittest.TestCase):
         partial = dict()
         partial['x2'] = ['B', 'D']
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     permissive = 'loop-search',
+                                     permissive = 'loopsearch',
                                      interpretation = partial)
         self.assertTrue(v)
 
         partial['x3'] = ['C']
         v, i = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = partial,
-                                     permissive = 'loop-search')
+                                     permissive = 'loopsearch')
         self.assertFalse(v)
 
     def test_example_04(self):
@@ -354,9 +425,22 @@ class ModularBisimulationTests(unittest.TestCase):
         icrns, _ = parse_crn('tests/crns/icrns/roessler_qian2011_modular.crn', is_file = True, modular = True)
         partial = {sp: [sp] for sp in fs}
         backup = {sp: [sp] for sp in fs}
-        v, i = modular_crn_bisimulation_test(fcrns, icrns, fs, partial, ispCommon = fs)
+        v, i = modular_crn_bisimulation_test(fcrns, icrns, fs, partial)
         self.assertTrue(v)
         self.assertDictEqual(partial, backup)
+        v, i = modular_crn_bisimulation_test(fcrns, icrns, fs)
+
+    def test_qian_roessler_bisimulation_with_modular_interpretation(self):
+        fcrns, fs = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
+        icrns, _ = parse_crn('tests/crns/icrns/roessler_qian2011_modular.crn', is_file = True, modular = True)
+        partial = {sp: [sp] for sp in fs}
+        v, i = modular_crn_bisimulation_test(fcrns, icrns, fs, partial)
+        self.assertTrue(v)
+
+        fcrn, _ = parse_crn('tests/crns/roessler_01.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
+        v, i = crn_bisimulation_test(fcrn, icrn, fs, interpretation = i)
+        self.assertTrue(v)
 
     def todo_test_cardelliNM_modularity(self):
         # echo "->A; B->" | nuskell --ts cardelli2011_NM.ts --verify crn-bisimulation

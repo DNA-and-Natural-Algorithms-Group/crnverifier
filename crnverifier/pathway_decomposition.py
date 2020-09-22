@@ -11,34 +11,13 @@ log = logging.getLogger(__name__)
 
 from itertools import chain
 from collections import Counter
-from .utils import assign_crn_species, pretty_crn, pretty_rxn, natural_sort
+from .utils import assign_crn_species, pretty_crn, pretty_rxn, natural_sort, clean_crn, interpret
 
 class NoFormalBasisError(Exception):
     pass
 
 class BasisFinderError(Exception):
     pass
-
-def clean_crn(crn, duplicates = True, trivial = True, inter = None):
-    """Takes a crn and removes trivial / duplicate reactions. """
-    new = []
-    seen = set()
-    for [R, P] in crn:
-        lR = sorted(interpret(R, inter)) if inter else sorted(R)
-        lP = sorted(interpret(P, inter)) if inter else sorted(P)
-        tR = tuple(lR)
-        tP = tuple(lP)
-        if trivial and tR == tP:
-            continue
-        if duplicates and (tR, tP) in seen:
-            continue
-        new.append([lR, lP])
-        seen.add((tR, tP))
-    return new
-
-def interpret(l, inter):
-    """ Replace species with their interpretation. """
-    return list(chain(*[inter.get(x, [x]) for x in l]))
 
 def formal(s, fs):
     """ Returns all formal species in state s. """

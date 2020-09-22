@@ -13,6 +13,7 @@ import argparse
 from crnverifier import __version__
 from crnverifier.utils import (parse_crn, 
                                pretty_crn,
+                               clean_crn,
                                remove_species, 
                                natural_sort)
 from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
@@ -70,7 +71,7 @@ def get_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
         assert all(len(rxn[0]) == 1 for rxn in inte)
         inter = {rxn[0][0]: rxn[1] for rxn in inte}
         log.info('Input interpretation:\n  {}'.format(
-            "\n  ".join('{}: {}'.format(k,v) for (k, v) in natural_sort(inter.items()))))
+                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(inter.items()))))
     return fcrn, icrn, fs, inter
 
 def get_modular_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
@@ -94,9 +95,19 @@ def get_modular_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
         assert all(len(rxn[0]) == 1 for rxn in inte)
         inter = {rxn[0][0]: rxn[1] for rxn in inte}
         log.info('Input interpretation:\n  {}'.format(
-            "\n  ".join('{}: {}'.format(k,v) for (k, v) in natural_sort(inter.items()))))
+                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(inter.items()))))
     return fcrns, icrns, fs, inter
 
+def print_bisimulation_outputs(v, i, method):
+    if v is True:
+        print(f"Verification result for {method} = {v}.",
+              f"The implementation CRN is a correct implementation of the formal CRN.")
+    elif v is False:
+        print(f"Verification result for {method} = {v}.",
+              f"The implementation CRN is not a correct implementation of the formal CRN.")
+    elif v is None:
+        print(f"No verification result for {method}.",
+              f"Verification did not terminate within {args.verify_timeout} seconds.")
 
 def get_pathway_decomposition_inputs(crn_files, formals, constants):
     """ Helper function to parse commandline input files.
@@ -161,8 +172,8 @@ def add_commandline_arguments(parser):
             help = """Read an interpretation (a mapping between species in
             typical CRN format) from a file.""")
     correctness.add_argument("--permissive-check",
-            action = 'store', metavar = '<str>', default = 'whole-graph',
-            choices = ('loop-search', 'depth-first', 'whole-graph'),
+            action = 'store', metavar = '<str>', default = 'graphsearch',
+            choices = ('loopsearch', 'reactionsearch', 'graphsearch'),
             help = "Choose an algorithm to check the permissive condition.")
 
     equivalence.add_argument("-b", "--crn-files", nargs = '+', default = [],
@@ -189,7 +200,7 @@ def main():
     logger = logging.getLogger('crnverifier')
     logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s %(filename)s %(message)s')
+    formatter = logging.Formatter('%(levelname)s %(filename)s: %(message)s')
     ch.setFormatter(formatter)
     if args.verbose == 0:
         ch.setLevel(logging.WARNING)
@@ -240,17 +251,12 @@ def main():
         (v, i) = (None, None) if v is None else v
         if v is False:
             i = i[0]
-        print(i)
 
-        if v is True:
-            print(f"Verification result for {args.method} = {v}.",
-                  f"The implementation CRN is a correct implementation of the formal CRN.")
-        elif v is False:
-            print(f"Verification result for {args.method} = {v}.",
-                  f"The implementation CRN is not a correct implementation of the formal CRN.")
-        elif v is None:
-            print(f"No verification result for {args.method}.",
-                  f"Verification did not terminate within {args.verify_timeout} seconds.")
+        log.info('Returned interpretation:\n  ' + \
+                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
+        log.info('Interpreted CRN:\n  {}'.format( 
+                 '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
+        print_bisimulation_outputs(v, i, args.method)
 
     elif args.method in ('modular-crn-bisimulation'):
         # TODO: Interactive mode asks for input if fcrn isn't given, etc.
@@ -270,17 +276,13 @@ def main():
         (v, i) = (None, None) if v is None else v
         if v is False:
             i = i[2]
-        print(i)
 
-        if v is True:
-            print(f"Verification result for {args.method} = {v}.",
-                  f"The implementation CRN is a correct implementation of the formal CRN.")
-        elif v is False:
-            print(f"Verification result for {args.method} = {v}.",
-                  f"The implementation CRN is not a correct implementation of the formal CRN.")
-        elif v is None:
-            print(f"No verification result for {args.method}.",
-                  f"Verification did not terminate within {args.verify_timeout} seconds.")
+        log.info("Returned interpretation:\n  " + \
+                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
+        for e, icrn in enumerate(icrns, 1):
+            log.info('Interpreted CRN module {}:\n  {}'.format(e, 
+                     '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
+        print_bisimulation_outputs(v, i, args.method)
 
     elif args.method in ('formal-basis', 'pathway-decomposition'):
         # TODO: Interactive mode asks for input if fcrn isn't given, etc.

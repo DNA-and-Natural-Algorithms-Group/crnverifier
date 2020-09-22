@@ -6,6 +6,7 @@ import logging
 log = logging.getLogger(__name__)
 
 import re
+from itertools import chain
 from .crn_parser import parse_crn_file, parse_crn_string
 
 def parse_crn(string, is_file = False, modular = False):
@@ -49,6 +50,27 @@ def pretty_rxn(rxn):
 def pretty_crn(crn):
     for rxn in natural_sort(crn):
         yield pretty_rxn(rxn)
+
+def clean_crn(crn, duplicates = True, trivial = True, inter = None):
+    """Takes a crn and removes trivial / duplicate reactions. """
+    new = []
+    seen = set()
+    for [R, P] in crn:
+        lR = sorted(interpret(R, inter)) if inter else sorted(R)
+        lP = sorted(interpret(P, inter)) if inter else sorted(P)
+        tR = tuple(lR)
+        tP = tuple(lP)
+        if trivial and tR == tP:
+            continue
+        if duplicates and (tR, tP) in seen:
+            continue
+        new.append([lR, lP])
+        seen.add((tR, tP))
+    return new
+
+def interpret(l, inter):
+    """ Replace species with their interpretation. """
+    return list(chain(*[inter.get(x, [x]) for x in l]))
 
 def remove_species(crn, const):
     for rxn in crn:

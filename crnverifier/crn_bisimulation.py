@@ -334,7 +334,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
                     for out in cnstr(s - intrp[k]):
                         yield Counter({k:1}) + out
 
-    def search(s, d):
+    def reactionsearch(s, d):
         # s is the implementation state, d is the depth.
         # try to find (via trivial reactions) a state in which a reaction in fr can fire.
         # fr is a particular formal reaction along with all implementation reactions that interpret to it. 
@@ -361,7 +361,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
         for i in tr:
             if list((i[0] - s).keys()) == []:
                 t = (s - i[0]) + i[1]
-                out = search(t, d+1)
+                out = reactionsearch(t, d+1)
                 if out:
                     return True
                 elif out is None:
@@ -454,7 +454,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
 
         return False if not permissive_depth else None
 
-    def allsearch(formal):
+    def graphsearch(formal):
         """Check whether every implementation of state "formal" can implement the given formal reaction.
 
         This function stores for each state the list of states it can reach.
@@ -540,8 +540,8 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
 
         ist = cnstr(fcrn[i][0])
 
-        if permcheck == "whole-graph":
-            out = allsearch(fcrn[i][0])
+        if permcheck == "graphsearch":
+            out = graphsearch(fcrn[i][0])
             if not out:
                 if max_depth == -2:
                     return [False, [intr, max_depth, permissive_failure]]
@@ -576,8 +576,8 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
                 if t:
                     continue
                 hasht = set([])
-                found = ((permcheck=="loop-search") and loopsearch(j,fcrn[i][0])) \
-                        or ((permcheck=="depth-first") and search(j,0))
+                found = ((permcheck=="loopsearch") and loopsearch(j,fcrn[i][0])) \
+                        or ((permcheck=="reactionsearch") and reactionsearch(j,0))
                 if not found: # didn't work, but keep track of stuff for user output
                     if max_depth == -2:
                         return [False, [intr, max_depth, permissive_failure]]
@@ -595,11 +595,21 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
     return [True, intr]
 
 def moduleCond(module, formCommon, implCommon, intrp):
+    # TODO: this needs to be tested with inputs.
+    """ Check if modularity condition is satisfied.
+
+    Modularity condition: Every implementation species can turn into a common
+    species with the same interpretation. This assumes that the interpretation
+    (intrp) is complete, but contains only the implementation species of the 
+    current module. 
+
+    Definition 3.3 (Modularity condition).
+    """
     # check whether the modularity condition (every implementation species can
     # turn into common species with the same interpretation) is satisfied
     # assumes intrp is complete and filtered, so intrp.keys() is a list of all
     # implementation species in this module (and no others) algorithm is
-    # basically the whole-graph algorithm from perm, where all "minimal states"
+    # basically the graphsearch algorithm from perm, where all "minimal states"
     # are each exactly one implementation species
 
     # canBreak[k] is:
@@ -987,8 +997,10 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
         yield False
         yield [intr, max_depth] + state[2:]
 
-def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
-              permissive_depth=None, verbose=False):
+def test_iter(fcrn, ic, fs, 
+              interpretation = None,
+              permissive = 'graphsearch',
+              permissive_depth = None):
     '''Check whether an interpretation which is a bisimulation exists.
 
     Arguments:
@@ -1007,12 +1019,12 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
             partial interpretation of that implementation species to one copy
             of its counterpart
         permissive: method to check the permissive condition
-            'whole-graph': construct a reachability graph for each formal
+            'graphsearch': construct a reachability graph for each formal
                 reaction.  Uses poly(n^k) space and time, where n is size of
                 CRN and k is number of reactants in formal reaction.
-            'loop-search': search for productive loops with space-efficient
+            'loopsearch': search for productive loops with space-efficient
                 algorithm.  Uses poly(n,k) space and poly(2^n,2^k) time.
-            'depth-first': depth-first search for a path to implement each
+            'reactionsearch': depth-first search for a path to implement each
                 formal reaction.  Space and time bounds not known, but probably worse.
         permissive_depth: a bound on a quantity which is approximately the
             length of a path to search for, depending on which algorithm is used.
@@ -1027,9 +1039,10 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
                  with specified permissive_depth
         permissive_failure: if max_depth < 0, permissive_failure[0] is formal
             reaction for which permissive condition failed if so and method was
-            not 'whole-graph', permissive_failure[1] is implementation state
+            not 'graphsearch', permissive_failure[1] is implementation state
             which could not implement the reaction 
     '''
+    verbose = False
 
     log.debug('Testing:')
     log.debug('Original formal CRN:')
@@ -1038,8 +1051,8 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
     [log.debug('  {}'.format(pretty_rxn(r))) for r in ic]
     log.debug('Formal species: {}'.format(fs))
 
-    if permissive not in ['whole-graph', 'loop-search', 'depth-first']:
-        raise ValueError('permissive test should be "whole-graph", "loop-search", or "depth-first"')
+    if permissive not in ['graphsearch', 'loopsearch', 'reactionsearch']:
+        raise ValueError('permissive test should be "graphsearch", "loopsearch", or "reactionsearch"')
 
     def rimpl(k): # Do not confuse formal species with same-named species in the implementation ...
         return ('impl', k) if k in fs else k
@@ -1131,8 +1144,11 @@ def test_iter(fcrn, ic, fs, interpretation=None, permissive='whole-graph',
         yield False
         yield [listinter(fintr), max_depth, permissive_failure]
 
-def crn_bisimulation_test(fcrn, icrn, fs, interpretation = None, permissive = 'whole-graph',
-         permissive_depth = None, verbose = False, iterate = False):
+def crn_bisimulation_test(fcrn, icrn, fs, 
+                          interpretation = None,
+                          permissive = 'graphsearch',
+                          permissive_depth = None, 
+                          iterate = False):
     # wrapper function for the new test_iter; should be backwards-compatible
     # if iterate=False, should behave exactly like old test
     # if iterate=True, just return test_iter (the iterator)
@@ -1143,64 +1159,79 @@ def crn_bisimulation_test(fcrn, icrn, fs, interpretation = None, permissive = 'w
     if interpretation:
         interpretation = {k : Counter(v) for k, v in interpretation.items()}
 
-    iter_out = test_iter(fcrn, icrn, fs, interpretation, permissive,
-                         permissive_depth, verbose)
+    iter_out = test_iter(fcrn, icrn, fs, 
+                         interpretation,
+                         permissive,
+                         permissive_depth)
     if iterate:
         return iter_out
     else:
         correct = next(iter_out)
         return [correct, next(iter_out)]
 
-def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=None,
-                permissive='whole-graph', permissive_depth=None,
-                verbose=False, iterate = False):
-    '''Check whether an interpretation which is a modular bisimulation exists.
+def crn_bisimulations(fcrn, icrn, fs, interpretation = None):
+    """ An iterator that returns all valid CRN bisimulations.
 
-    Arguments:
-    fcrns: list of formal CRNs (modules)
-    icrns: list of implementation modules (same order as fcrns)
-    fs: list of formal species
-    ispCommon: list of implementation species common to all modules
-    interpretation: partial interpretation
-    permissive, permissive_depth, verbose: same as crn_bisimulation_test() above
-    iterate: determine whether to return one or all correct interpretations
+    for e, bisim in enumerate(crn_bisimulations(fcrn, icrn, fs), 1):
+      print(f'Bisimulation {e} = {bisim}')
+    """
+    raise NotImplementedError
+
+def modular_crn_bisimulation_test(fcrns, icrns, fs, 
+                                  interpretation = None, 
+                                  permissive = 'graphsearch',
+                                  permissive_depth = None,
+                                  iterate = False):
+    """ Check if the implementation modules are a CRN bisimulation of the formal modules.
+
+    Note: There are a few modifications to the original source:
+        - the arguments to check CRN bisimulation for each module changed:
+            - only the formal species present in the module are passed on
+        - the modularity condition input changed
+            - isc (former ispCommon) are now all implementation species that
+              are both in the current module and in at least one other module.
+
+    Args:
+        fcrns: a list of formal CRN modules.
+        icrns: a list of implementation CRN modules (with same order as fcrns).
+        fs: a list of formal species.
+        interpretation (dict, optional): a (partial) interpretation.
+        permissive, permissive_depth: same as crn_bisimulation_test() above
+        iterate (bool, optional): Return one or all correct interpretations
 
     Outputs:
-    If a correct interpretation intrp exists, returns [True, intrp]
-      If iterate=True, returns [True, [iters]] where iters is a list of, for each module, an iterator of all correct interpretations
-    If some module (fcrn, icrn) has no correct interpretation, returns [False, [fcrn, icrn, intrp, max_depth, permissive_failure]], where [intrp, max_depth, permissive_failure] are returned by test() on that module
-      max_depth = -3 when a modularity condition fails
+        If a correct interpretation exists, returns [True, intrp]
+        If iterate = True, returns [True, [iters]] where iters is a list of, for each module, an iterator of all correct interpretations
+        If some module (fcrn, icrn) has no correct interpretation, 
+            returns [False, [fcrn, icrn, intrp, max_depth, permissive_failure]], 
+                    where [intrp, max_depth, permissive_failure] are returned by test() on that module. 
+                           max_depth = -3 when a modularity condition fails
 
-    Fixmes:
-    For now, behavior is undefined if (a) any species not in ispCommon is in two or more modules, or (b) any species in ispCommon has no interpretation given
-    '''
-
+    """
     # For consistency with the rest of the lib, support list input.
     fcrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in fcrns]
     icrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in icrns]
-    if interpretation:
-        interpretation = {k : Counter(v) for k, v in interpretation.items()}
+    interpretation = {k : Counter(v) for k, v in interpretation.items()} if interpretation else {}
 
-    if ispCommon is None:
-        ispList = [reduce(lambda x,y: x | y, [set(rxn[0]) | set(rxn[1]) for rxn in icrn]) for icrn in icrns]
-        ispCommon = reduce(lambda x,y: x & y, ispList)
-        ispCommon = ispCommon.union(list(interpretation.keys())) # FIXME: this line is a hack
-
-    if not all([k in interpretation for k in ispCommon]):
-        #raise NotImplementedError('Modular test not yet implemented when interpretation of common species not provided.')
-        for k in ispCommon:
-            if k not in interpretation:
-                interpretation[k]=Counter()
+    # Identify common implementation species.
+    ispc = dict() # Store for every implementation species in which module it appears: 
+    for e, module in enumerate(icrns, 1):
+        mspecies = set().union(*[set().union(*rxn[:2]) for rxn in module])
+        for isp in mspecies:
+            ispc[isp] = ispc.get(isp, []) + [e]
+    log.debug(f'ispc = {ispc}')
 
     outs = [False for fcrn in fcrns]
     i = 0
 
-    for (fcrn, icrn) in zip(fcrns, icrns):
-        intr = {k: interpretation[k] for k in interpretation
-                 if k in ispCommon
-                 or any([k in rxn[0] or k in rxn[1] for rxn in icrn])}
-        out = crn_bisimulation_test(fcrn, icrn, fs, intr, permissive,
-                   permissive_depth, verbose, iterate=True)
+    for e, (fcrn, icrn) in enumerate(zip(fcrns, icrns), 1):
+        # Prepare inputs for crn bisimulation of this module
+        mfs = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
+        minter = {k: v for k, v in interpretation.items() if e in ispc[k]}
+        out = crn_bisimulation_test(fcrn, icrn, mfs, minter, 
+                                    permissive, 
+                                    permissive_depth,
+                                    iterate = True)
         if not next(out):
             return [False, [fcrn, icrn] + next(out)]
 
@@ -1208,11 +1239,12 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=No
         bad = None
         for intrp in out:
             intrp = {k : Counter(v) for k, v in intrp.items()}
-            good = lambda x: moduleCond(icrn, fs, ispCommon, x)
+            # Get all implementation species that are common with at least one other module.
+            isc = {k for k, v in ispc.items() if e in v and len(v) > 1} 
+            good = lambda x: moduleCond(icrn, fs, isc, x)
             if good(intrp):
                 if iterate:
-                    outs[i] = itertools.chain([intrp],
-                                              filter(good, out))
+                    outs[i] = itertools.chain([intrp], filter(good, out))
                     found = True
                 else:
                     interpretation.update(intrp)
@@ -1221,6 +1253,8 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs, interpretation, ispCommon=No
             else:
                 if not bad:
                     bad = [intrp, -3, [[],[]]]
+                else:
+                    log.debug(f'bad {bad}')
 
         if not found:
             return [False, [fcrn, icrn] + bad]
