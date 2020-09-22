@@ -43,7 +43,8 @@ def limit_runtime(timeout, func, *kargs, **kwargs):
         ret = None
     finally:
         tleft = signal.alarm(0)
-        log.info(f'Function needed {int(timeout-tleft)} seconds.')
+        if timeout:
+            log.info(f'Function needed {int(timeout-tleft)} seconds.')
     return ret
 
 def get_bisimulation_inputs_interactive(constants):
@@ -148,7 +149,7 @@ def add_commandline_arguments(parser):
                         version = '%(prog)s ' + __version__)
     parser.add_argument("-v", "--verbose", action = 'count', default = 0,
             help = "Print verbose output. -vv increases verbosity level.")
-    parser.add_argument("--verify-timeout", type = int, default = 0, metavar = '<int>',
+    parser.add_argument("--verify-timeout", type = int, default = 30, metavar = '<int>',
             help = "Specify time in seconds to wait for verification to complete.")
     parser.add_argument("-c", "--constant-species", nargs = '+', default = [], 
             action = 'store', metavar = '<str>', 
@@ -252,10 +253,11 @@ def main():
         if v is False:
             i = i[0]
 
-        log.info('Returned interpretation:\n  ' + \
-                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
-        log.info('Interpreted CRN:\n  {}'.format( 
-                 '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
+        if v is not None:
+            log.info('Returned interpretation:\n  ' + \
+                     '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
+            log.info('Interpreted CRN:\n  {}'.format( 
+                     '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
         print_bisimulation_outputs(v, i, args.method)
 
     elif args.method in ('modular-crn-bisimulation'):
@@ -277,11 +279,12 @@ def main():
         if v is False:
             i = i[2]
 
-        log.info("Returned interpretation:\n  " + \
-                 '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
-        for e, icrn in enumerate(icrns, 1):
-            log.info('Interpreted CRN module {}:\n  {}'.format(e, 
-                     '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
+        if v is not None:
+            log.info("Returned interpretation:\n  " + \
+                     '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
+            for e, icrn in enumerate(icrns, 1):
+                log.info('Interpreted CRN module {}:\n  {}'.format(e, 
+                         '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
         print_bisimulation_outputs(v, i, args.method)
 
     elif args.method in ('formal-basis', 'pathway-decomposition'):

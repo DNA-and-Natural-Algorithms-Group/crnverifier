@@ -595,16 +595,6 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
     return [True, intr]
 
 def moduleCond(module, formCommon, implCommon, intrp):
-    # TODO: this needs to be tested with inputs.
-    """ Check if modularity condition is satisfied.
-
-    Modularity condition: Every implementation species can turn into a common
-    species with the same interpretation. This assumes that the interpretation
-    (intrp) is complete, but contains only the implementation species of the 
-    current module. 
-
-    Definition 3.3 (Modularity condition).
-    """
     # check whether the modularity condition (every implementation species can
     # turn into common species with the same interpretation) is satisfied
     # assumes intrp is complete and filtered, so intrp.keys() is a list of all
@@ -1221,12 +1211,19 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs,
             ispc[isp] = ispc.get(isp, []) + [e]
     log.debug(f'ispc = {ispc}')
 
+    fspc = dict() # Store for every formal species in which module it appears: 
+    for e, module in enumerate(fcrns, 1):
+        mspecies = set().union(*[set().union(*rxn[:2]) for rxn in module])
+        for fsp in mspecies:
+            fspc[fsp] = fspc.get(fsp, []) + [e]
+    log.debug(f'fspc = {fspc}')
+
     outs = [False for fcrn in fcrns]
     i = 0
 
     for e, (fcrn, icrn) in enumerate(zip(fcrns, icrns), 1):
         # Prepare inputs for crn bisimulation of this module
-        mfs = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
+        mfs = {k for k in fs if e in fspc[k]}
         minter = {k: v for k, v in interpretation.items() if e in ispc[k]}
         out = crn_bisimulation_test(fcrn, icrn, mfs, minter, 
                                     permissive, 
@@ -1240,8 +1237,9 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs,
         for intrp in out:
             intrp = {k : Counter(v) for k, v in intrp.items()}
             # Get all implementation species that are common with at least one other module.
-            isc = {k for k, v in ispc.items() if e in v and len(v) > 1} 
-            good = lambda x: moduleCond(icrn, fs, isc, x)
+            fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
+            isc = {i for i, m in ispc.items() if e in m and len(m) > 1}
+            good = lambda x: moduleCond(icrn, fsc, isc, x)
             if good(intrp):
                 if iterate:
                     outs[i] = itertools.chain([intrp], filter(good, out))

@@ -419,6 +419,36 @@ class BisimulationTests(unittest.TestCase):
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, interpretation=inter)
         assert v is False
 
+    def test_order_formals_bug(self):
+        fcrn = "A + B -> C"
+        icrn = "B_1_ + i7 -> i684 + i17; A <=> i7; i17 -> C_1_ + i29"
+
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+
+        print(fs)
+        i01 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
+        i02 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
+        i03 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
+        i04 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
+        i05 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
+        i06 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
+        i07 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
+        i08 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
+        i09 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
+        i10 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
+
+
+        inters = list(crn_bisimulation_test(fcrn, icrn, fs, iterate = True))[1:]
+        for r in inters:
+            for e, i in enumerate([i01, i02, i03, i04, i05, i06, i07, i08, i09, i10], 1):
+                if r == i:
+                    print(e, r)
+                    break
+
+        assert all(i in inters for i in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10])
+
+
 class ModularBisimulationTests(unittest.TestCase):
     def test_qian_roessler_modular_bisimulation(self):
         (fcrns, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
