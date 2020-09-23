@@ -16,6 +16,10 @@ import itertools
 from functools import reduce
 from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
 
+class CRNBisimulationError(Exception):
+    pass
+
+# I/O utils
 def pretty_crn(crn):
     for rxn in crn:
         yield '{} -> {}'.format(' + '.join(rxn[0]), ' + '.join(rxn[1]))
@@ -27,19 +31,20 @@ def pretty_rxn(rxn, flag_internal = True):
         r, tuple) else '{}'.format(r), rxn[1].elements()))
     return '{} -> {}'.format(' + '.join(R), ' + '.join(P))
 
-def listinter(inter):
+def inter_counter(inter):
+    # For internal representation of interpretations 
+    # return interpretations of the format: inter[str] = Counter
+    return {k: Counter(v) for k, v in inter.items()}
+
+def inter_list(inter):
     # For consistency with the rest of the package, 
     # return interpretations of the format: inter[str] = list
     return {k: list(v.elements()) for k, v in inter.items()}
 
-def deformalize(intrp, fs):
-    intr = {}
-    for sp in intrp:
-        if sp in fs:
-            intr[('impl', sp)] = intrp[sp]
-        else:
-            intr[sp] = intrp[sp]
-    return intr
+def deformalize(k, fs):
+    # Do not confuse formal species with same-named species in the
+    # implementation CRN.
+    return ('impl', k) if k in fs else k
 
 def formalize(intrp):
     intr = {}
@@ -594,75 +599,6 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
     intr = intrp.copy()
     return [True, intr]
 
-def moduleCond(module, formCommon, implCommon, intrp):
-    # check whether the modularity condition (every implementation species can
-    # turn into common species with the same interpretation) is satisfied
-    # assumes intrp is complete and filtered, so intrp.keys() is a list of all
-    # implementation species in this module (and no others) algorithm is
-    # basically the graphsearch algorithm from perm, where all "minimal states"
-    # are each exactly one implementation species
-
-    # canBreak[k] is:
-    #   True if species k is known to decompose (via trivial reactions) into
-    #     species which are each either in implCommon or have an interpretation
-    #     containing nothing in formCommon, or known to decompose as such if
-    #     some set of other species each with interpretation strictly < do
-    #   [reach,produce] where reach is set of implementation species with
-    #     interpretation equal to that of k (known) reachable from k, and
-    #     produce is set of null species producible in a loop from k to k
-    canBreak = {k: ((k in implCommon) or set(intrp[k]).isdisjoint(formCommon)
-                    or [set(),set()])
-                for k in intrp}
-    changed = True
-
-    tr = [rxn for rxn in module if (lambda x,y: msleq(x,y) and msleq(y,x))
-          (interpret(rxn[0],intrp),interpret(rxn[1],intrp))]
-
-    while changed:
-        changed = False
-        for k in canBreak:
-            if canBreak[k] is True: continue
-
-            for rxn in tr:
-                if k in rxn[0] and \
-                   set(rxn[0] - Counter([k])).issubset(canBreak[k][1]):
-                    # reactants of rxn are one copy of k and some null species
-                    #  producible in a loop from k to k
-                    nulls = set()
-                    theOne = None
-                    for sp in rxn[1]:
-                        if intrp[sp] == Counter():
-                            nulls.add(sp)
-                        elif not msleq(intrp[k],intrp[sp]):
-                            canBreak[k] = True
-                            changed = True
-                            break
-                        else:
-                            if canBreak[sp] is True:
-                                canBreak[k] = True
-                                changed = True
-                                break
-                            theOne = sp
-
-                    if canBreak[k] is True:
-                        break
-
-                    if theOne not in canBreak[k][0]:
-                        canBreak[k][0].add(theOne)
-                        changed = True
-
-                    if not (canBreak[theOne][0] <= canBreak[k][0]):
-                        canBreak[k][0] |= canBreak[theOne][0]
-                        changed = True
-
-                    if k in canBreak[theOne][0]:
-                        loopable = nulls | canBreak[theOne][1]
-                        if not loopable <= canBreak[k][1]:
-                            canBreak[k][1] |= loopable
-                            changed = True
-
-    return all([canBreak[k] is True for k in canBreak])
-
 def equations(fcrn, icrn, fs, intrp, permcheck, state):
     # All unknown implementation reactions (i.e. those with some unknown
     # species) must be trivial.  Build the matrix for the the "solve" function,
@@ -886,7 +822,6 @@ def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
 
 def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
     # Search column.  I.e. make sure every formal reaction can be implemented.
-
     log.debug('Searching column ...')
     log.debug('State: {}'.format(state))
     #log.debug('Original formal CRN:')
@@ -987,192 +922,196 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
         yield False
         yield [intr, max_depth] + state[2:]
 
-def test_iter(fcrn, ic, fs, 
-              interpretation = None,
-              permissive = 'graphsearch',
-              permissive_depth = None):
-    '''Check whether an interpretation which is a bisimulation exists.
+def moduleCond(module, formCommon, implCommon, intrp):
+    # check whether the modularity condition (every implementation species can
+    # turn into common species with the same interpretation) is satisfied
+    # assumes intrp is complete and filtered, so intrp.keys() is a list of all
+    # implementation species in this module (and no others) algorithm is
+    # basically the graphsearch algorithm from perm, where all "minimal states"
+    # are each exactly one implementation species
+
+    # canBreak[k] is:
+    #   True if species k is known to decompose (via trivial reactions) into
+    #     species which are each either in implCommon or have an interpretation
+    #     containing nothing in formCommon, or known to decompose as such if
+    #     some set of other species each with interpretation strictly < do
+    #   [reach,produce] where reach is set of implementation species with
+    #     interpretation equal to that of k (known) reachable from k, and
+    #     produce is set of null species producible in a loop from k to k
+
+    module = [[Counter(part) for part in rxn] for rxn in module]
+    intrp = {k : Counter(v) for k, v in intrp.items()}
+
+    canBreak = {k: ((k in implCommon) or set(intrp[k]).isdisjoint(formCommon)
+                    or [set(),set()])
+                for k in intrp}
+    changed = True
+
+    tr = [rxn for rxn in module if (lambda x,y: msleq(x,y) and msleq(y,x))
+          (interpret(rxn[0],intrp),interpret(rxn[1],intrp))]
+
+    while changed:
+        changed = False
+        for k in canBreak:
+            if canBreak[k] is True: continue
+
+            for rxn in tr:
+                if k in rxn[0] and \
+                   set(rxn[0] - Counter([k])).issubset(canBreak[k][1]):
+                    # reactants of rxn are one copy of k and some null species
+                    #  producible in a loop from k to k
+                    nulls = set()
+                    theOne = None
+                    for sp in rxn[1]:
+                        if intrp[sp] == Counter():
+                            nulls.add(sp)
+                        elif not msleq(intrp[k],intrp[sp]):
+                            canBreak[k] = True
+                            changed = True
+                            break
+                        else:
+                            if canBreak[sp] is True:
+                                canBreak[k] = True
+                                changed = True
+                                break
+                            theOne = sp
+
+                    if canBreak[k] is True:
+                        break
+
+                    if theOne not in canBreak[k][0]:
+                        canBreak[k][0].add(theOne)
+                        changed = True
+
+                    if not (canBreak[theOne][0] <= canBreak[k][0]):
+                        canBreak[k][0] |= canBreak[theOne][0]
+                        changed = True
+
+                    if k in canBreak[theOne][0]:
+                        loopable = nulls | canBreak[theOne][1]
+                        if not loopable <= canBreak[k][1]:
+                            canBreak[k][1] |= loopable
+                            changed = True
+
+    return all([canBreak[k] is True for k in canBreak])
+
+def crn_bisimulations(fcrn, icrn, 
+                      interpretation = None,
+                      formals = None, 
+                      permissive = 'graphsearch',
+                      permissive_depth = None):
+    """ Iterate over all crn bisimulations.
+
+    for e, bisim in enumerate(crn_bisimulations(fcrn, icrn), 1):
+        print(f'Bisimulation {e} = {bisim}')
 
     Arguments:
-        fcrn, ic: formal and implementation CRN, respectively (Counter format)
-            format: [ [reactants, products]* ]
-            reactants, products each = Counter({('species_name': count)*})
-        fs: list of all formal species in fcrn
-        interpretation: partial interpretation which output must respect
-            format: {('implementation_species_name': formal_multiset)*}
-            where formal_multiset := Counter({('formal_species_name': count)*})
-
-            default None: initial partial interpretation is empty
-
-            semi-default True: function will find each formal species for which
-            a species of the same name appears in ic, and set the initial
-            partial interpretation of that implementation species to one copy
-            of its counterpart
-        permissive: method to check the permissive condition
-            'graphsearch': construct a reachability graph for each formal
+        fcrn (list): A formal CRN.
+        icrn (list): An implementation CRN.
+        interpretation (dict, optional): A (partial) interpretation of 
+            the format interpretation[is] = list[fs,..].
+            Defaults to None. 
+        formals (set, optional): The set of formal species. Defaults to all
+            species in the formal CRN.
+        permissive (string, optional): Select the method to check the
+            permissive condition:
+             - 'graphsearch': construct a reachability graph for each formal
                 reaction.  Uses poly(n^k) space and time, where n is size of
                 CRN and k is number of reactants in formal reaction.
-            'loopsearch': search for productive loops with space-efficient
+             - 'loopsearch': search for productive loops with space-efficient
                 algorithm.  Uses poly(n,k) space and poly(2^n,2^k) time.
-            'reactionsearch': depth-first search for a path to implement each
+             - 'reactionsearch': depth-first search for a path to implement each
                 formal reaction.  Space and time bounds not known, but probably worse.
-        permissive_depth: a bound on a quantity which is approximately the
-            length of a path to search for, depending on which algorithm is used.
+            Defaults to graphsearch.
+        permissive_depth (int, optional): A bound on a quantity which is
+            approximately the length of a path to search for, but depends on
+            which algorithm is used. Defaults to None.
 
     Outputs:
-        if implementation is correct, yield True, then yield correct interpretations
-        otherwise, yield False, then yield [intrp, max_depth, permissive_failure]
-        intrp: "best" incorrect interpretation
-        max_depth: if > 0, search depth in Qing's algorithm at which intrp was found
-                 if -1, permissive condition was proven false for intrp
-                 if -2, permissive condition could not be proven true for intrp
-                 with specified permissive_depth
-        permissive_failure: if max_depth < 0, permissive_failure[0] is formal
-            reaction for which permissive condition failed if so and method was
-            not 'graphsearch', permissive_failure[1] is implementation state
-            which could not implement the reaction 
-    '''
-    verbose = False
+        Yields all correct CRN bisimulations, or None if no CRN bisimulation exists.
+    """
 
-    log.debug('Testing:')
-    log.debug('Original formal CRN:')
-    [log.debug('  {}'.format(r)) for r in pretty_crn(fcrn)]
-    log.debug('Original implementation CRN:')
-    [log.debug('  {}'.format(pretty_rxn(r))) for r in ic]
-    log.debug('Formal species: {}'.format(fs))
-
-    if permissive not in ['graphsearch', 'loopsearch', 'reactionsearch']:
-        raise ValueError('permissive test should be "graphsearch", "loopsearch", or "reactionsearch"')
-
-    def rimpl(k): # Do not confuse formal species with same-named species in the implementation ...
-        return ('impl', k) if k in fs else k
-
-    icrn = []
-    for [r, p] in ic:
-        nr = Counter({rimpl(k): v for (k, v) in r.items()})
-        np = Counter({rimpl(k): v for (k, v) in p.items()})
-        icrn.append([nr, np])
-
-    log.debug('Internal implementation CRN:')
-    [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
-
-    if interpretation is None: # default: no interpretation information
-        intrp = {}
-    elif interpretation is True: # special case: each fsp has a canonical implementation
-        intrp = {('impl', fsp): Counter({fsp: 1}) for fsp in fs
-                if any([('impl', fsp) in rxn[0] or ('impl', fsp) in rxn[1] for rxn in icrn])}
-    else:
-        intrp = deformalize(interpretation, fs)
-
-    log.debug('Internal interpretation:')
-    [log.debug('  {}: {}'.format(k,v)) for (k, v) in intrp.items()]
-
-    if permissive_depth:
-        permissive = [permissive, permissive_depth]
-    log.debug('Permissive argument: {}'.format(permissive))
-
-    if ic == []: # Empty implementation CRN!
-        yield {} if fcrn == [] else [{},0,[[],[]]]
-
-    unknown = [i for i in range(len(fcrn))]
-    out = searchc(fcrn, icrn, fs, unknown, intrp, 0, permissive,
-                  [{}, 0, [[Counter(),Counter()],Counter()]])
-
-    correct = next(out)
-    if correct:
-        yield True
-        for intrpout in out:
-            finter = formalize(intrpout)
-            log.debug("Valid interpretation:")
-            [log.debug('  {:s} -> {}'.format(k, 
-                ' + '.join(v.elements()))) for (k, v) in finter.items()]
-            yield listinter(finter)
-
-    elif verbose: #DEPRECATED, but useful information for now...
-
-        def printRxn(rxn):
-            print('{} -> {}'.format(' + '.join(rxn[0]), ' + '.join(rxn[1])))
-        
-        def output(intrp):
-            for sp in intrp:
-                print("   ", end='')
-                k = sp
-                if isinstance(sp, tuple):
-                    k = k[1]
-                printRxn([{k: 1}, intrp[sp]])
-            print("")
-
-        intr, max_depth, permissive_failure = next(out)
-        if max_depth >= 0:
-            print("Delimiting condition cannot be satisfied.")
-            if max_depth >= len(fcrn):
-                print("There is implementation reaction not in formal CRN.")
-            else:
-                print("There is formal reaction not implemented.")
-            print("Max search depth reached:", max_depth)
-            print("with interpretation:")
-            output(intr)
-        else:
-            print("Fail in permissive test with interpretation:")
-            output(intr)
-            print("for formal reaction:", end='')
-            printRxn(permissive_failure[0])
-            print("from implementation state:", permissive_failure[1])
-            if max_depth == -2:
-                print("with max trivial reaction chain length", permissive_depth, "reached.")
-        print()
-
-        yield False
-        yield [listinter(formalize(intr)), max_depth, permissive_failure]
-        return
-    else:
-        intr, max_depth, permissive_failure = next(out)
-        fintr = formalize(intr)
-        #log.info("Invalid interpretation:")
-        #[log.info('  {:s} -> {}'.format(k, 
-        #    ' + '.join(v.elements()))) for (k, v) in finter.items()]
-        yield False
-        yield [listinter(fintr), max_depth, permissive_failure]
-
-def crn_bisimulation_test(fcrn, icrn, fs, 
-                          interpretation = None,
-                          permissive = 'graphsearch',
-                          permissive_depth = None, 
-                          iterate = False):
-    # wrapper function for the new test_iter; should be backwards-compatible
-    # if iterate=False, should behave exactly like old test
-    # if iterate=True, just return test_iter (the iterator)
-    
     # For consistency with the rest of the lib, support list input.
     fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
     icrn = [[Counter(part) for part in rxn] for rxn in icrn]
     if interpretation:
         interpretation = {k : Counter(v) for k, v in interpretation.items()}
+    if formals is None:
+        formals = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
 
-    iter_out = test_iter(fcrn, icrn, fs, 
-                         interpretation,
-                         permissive,
-                         permissive_depth)
-    if iterate:
-        return iter_out
+    log.debug('Testing:')
+    log.debug('Original formal CRN:')
+    [log.debug('  {}'.format(r)) for r in pretty_crn(fcrn)]
+    log.debug('Original implementation CRN:')
+    [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
+    log.debug(f'Formal species: {formals}')
+
+    if icrn == []: # Empty implementation CRN!
+        yield {} if fcrn == [] else [{}, 0, [[], []]]
+
+    if permissive not in ['graphsearch', 'loopsearch', 'reactionsearch']:
+        raise CRNBisimulationError('Uknown option: {}'.format(
+            'the permissive test should be {}'.format(
+            '"graphsearch", "loopsearch", or "reactionsearch".')))
+    new = []
+    for [r, p] in icrn:
+        nr = Counter({deformalize(k, formals): v for (k, v) in r.items()})
+        np = Counter({deformalize(k, formals): v for (k, v) in p.items()})
+        new.append([nr, np])
+    icrn = new
+    log.debug('Internal implementation CRN:')
+    [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
+    intrp = {deformalize(k, formals): v for k, v in interpretation.items()
+                                                } if interpretation else {}
+    log.debug('Internal interpretation:')
+    [log.debug('  {}: {}'.format(k,v)) for (k, v) in intrp.items()]
+
+    if permissive_depth:
+        permissive = [permissive, permissive_depth]
+    log.debug(f'Permissive argument: {permissive}')
+
+    unknown = [i for i in range(len(fcrn))]
+    out = searchc(fcrn, icrn, formals, unknown, intrp, 0, permissive,
+                  [{}, 0, [[Counter(),Counter()],Counter()]])
+
+    correct = next(out)
+    if correct:
+        for intrpout in out:
+            yield inter_list(formalize(intrpout))
     else:
-        correct = next(iter_out)
-        return [correct, next(iter_out)]
+        wintr, max_depth, permissive_failure = next(out)
+        wintr = inter_list(formalize(wintr))
+        #max_depth: if > 0, search depth in Qing's algorithm at which intrp was found
+        #         if -1, permissive condition was proven false for intrp
+        #         if -2, permissive condition could not be proven true for intrp
+        #         with specified permissive_depth
+        #permissive_failure: if max_depth < 0, permissive_failure[0] is formal
+        #    reaction for which permissive condition failed if so and method was
+        #    not 'graphsearch', permissive_failure[1] is implementation state
+        #    which could not implement the reaction 
+        if max_depth >= 0:
+            log.info("Delimiting condition cannot be satisfied:")
+            if max_depth >= len(fcrn):
+                log.info("An implementation reaction cannot be found in the formal CRN.")
+            else:
+                log.info("A formal reaction cannot be found in the implementation CRN.")
+            log.info(f"Maximum search depth reached: {max_depth}")
+            log.debug(f"Returning wrong interpretation:\n {wintr}")
+        else:
+            [[R, P], istate] = permissive_failure
+            log.info("Permissive condition cannot be satisfied:")
+            log.info("The formal reaction: {}".format(
+                '{} -> {}'.format(' + '.join(R), ' + '.join(P))))
+            log.info(f"is not possible from implementation state: {istate}")
+            if max_depth == -2:
+                log.info(f"The maximum trivial reaction chain length {permissive_depth} has been reached.")
+        yield None
 
-def crn_bisimulations(fcrn, icrn, fs, interpretation = None):
-    """ An iterator that returns all valid CRN bisimulations.
-
-    for e, bisim in enumerate(crn_bisimulations(fcrn, icrn, fs), 1):
-      print(f'Bisimulation {e} = {bisim}')
-    """
-    raise NotImplementedError
-
-def modular_crn_bisimulation_test(fcrns, icrns, fs, 
+def modular_crn_bisimulation_test(fcrns, icrns, formals, 
                                   interpretation = None, 
                                   permissive = 'graphsearch',
-                                  permissive_depth = None,
-                                  iterate = False):
-    """ Check if the implementation modules are a CRN bisimulation of the formal modules.
+                                  permissive_depth = None):
+    """ Check if a modulular CRN bisimulation exists. 
 
     Note: There are a few modifications to the original source:
         - the arguments to check CRN bisimulation for each module changed:
@@ -1180,28 +1119,16 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs,
         - the modularity condition input changed
             - isc (former ispCommon) are now all implementation species that
               are both in the current module and in at least one other module.
-
+            - fsc are all formal species that are both in the current module
+              and in at least one other module.
     Args:
-        fcrns: a list of formal CRN modules.
-        icrns: a list of implementation CRN modules (with same order as fcrns).
-        fs: a list of formal species.
-        interpretation (dict, optional): a (partial) interpretation.
-        permissive, permissive_depth: same as crn_bisimulation_test() above
-        iterate (bool, optional): Return one or all correct interpretations
+        same as for crn_bisimulations()
 
-    Outputs:
-        If a correct interpretation exists, returns [True, intrp]
-        If iterate = True, returns [True, [iters]] where iters is a list of, for each module, an iterator of all correct interpretations
-        If some module (fcrn, icrn) has no correct interpretation, 
-            returns [False, [fcrn, icrn, intrp, max_depth, permissive_failure]], 
-                    where [intrp, max_depth, permissive_failure] are returned by test() on that module. 
-                           max_depth = -3 when a modularity condition fails
-
+    Output:
+        [bool, dict]: Whether a modular CRN bisimulation exists, and the interpretation.
     """
-    # For consistency with the rest of the lib, support list input.
-    fcrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in fcrns]
-    icrns = [[[Counter(part) for part in rxn] for rxn in mod] for mod in icrns]
-    interpretation = {k : Counter(v) for k, v in interpretation.items()} if interpretation else {}
+    # Let's make a copy here to avoid modification of the partial interpretation.
+    inter = {k : v for k, v in interpretation.items()} if interpretation else {}
 
     # Identify common implementation species.
     ispc = dict() # Store for every implementation species in which module it appears: 
@@ -1211,6 +1138,7 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs,
             ispc[isp] = ispc.get(isp, []) + [e]
     log.debug(f'ispc = {ispc}')
 
+    # Identify common formal species.
     fspc = dict() # Store for every formal species in which module it appears: 
     for e, module in enumerate(fcrns, 1):
         mspecies = set().union(*[set().union(*rxn[:2]) for rxn in module])
@@ -1218,47 +1146,48 @@ def modular_crn_bisimulation_test(fcrns, icrns, fs,
             fspc[fsp] = fspc.get(fsp, []) + [e]
     log.debug(f'fspc = {fspc}')
 
-    outs = [False for fcrn in fcrns]
-    i = 0
-
     for e, (fcrn, icrn) in enumerate(zip(fcrns, icrns), 1):
         # Prepare inputs for crn bisimulation of this module
-        mfs = {k for k in fs if e in fspc[k]}
-        minter = {k: v for k, v in interpretation.items() if e in ispc[k]}
-        out = crn_bisimulation_test(fcrn, icrn, mfs, minter, 
-                                    permissive, 
-                                    permissive_depth,
-                                    iterate = True)
-        if not next(out):
-            return [False, [fcrn, icrn] + next(out)]
-
-        found = False
-        bad = None
-        for intrp in out:
-            intrp = {k : Counter(v) for k, v in intrp.items()}
-            # Get all implementation species that are common with at least one other module.
+        mfs = {k for k in formals if e in fspc[k]}
+        minter = {k: v for k, v in inter.items() if e in ispc[k]}
+        for bisim in crn_bisimulations(fcrn, icrn, 
+                                       interpretation = minter, 
+                                       formals = mfs, 
+                                       permissive = permissive, 
+                                       permissive_depth = permissive_depth):
+            # Get all formal and implementation species that are in
+            # common with at least one other module.
             fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
             isc = {i for i, m in ispc.items() if e in m and len(m) > 1}
-            good = lambda x: moduleCond(icrn, fsc, isc, x)
-            if good(intrp):
-                if iterate:
-                    outs[i] = itertools.chain([intrp], filter(good, out))
-                    found = True
-                else:
-                    interpretation.update(intrp)
-                    found = True
+            if moduleCond(icrn, fsc, isc, bisim):
+                #TODO: re-insert the iterate part here ...
+                inter.update(bisim)
                 break
-            else:
-                if not bad:
-                    bad = [intrp, -3, [[],[]]]
-                else:
-                    log.debug(f'bad {bad}')
+            log.debug(f'Skipping non-modular bisimulation: {bisim}')
+        else:
+            return [False, None]
+    return [True, inter]
 
-        if not found:
-            return [False, [fcrn, icrn] + bad]
+def crn_bisimulation_test(fcrn, icrn, formals, 
+                          interpretation = None,
+                          permissive = 'graphsearch',
+                          permissive_depth = None):
+    """ Backward compatible CRN bisimulation interface.
 
-    if iterate:
-        return [True, outs]
+    Args:
+        same as for crn_bisimulations()
+
+    Output:
+        [bool, dict]: Whether a modular CRN bisimulation exists, and the interpretation.
+    """
+    iterator = crn_bisimulations(fcrn, icrn, 
+                                 interpretation = interpretation,
+                                 formals = formals, 
+                                 permissive = permissive,
+                                 permissive_depth = permissive_depth)
+
+    bisim = next(iterator)
+    if bisim is not None:
+        return [True, bisim]
     else:
-        return [True, listinter(interpretation)]
-
+        return [False, None]

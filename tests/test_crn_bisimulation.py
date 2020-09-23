@@ -10,7 +10,9 @@ logger.setLevel(logging.DEBUG)
 import unittest
 
 from crnverifier.utils import parse_crn
-from crnverifier.crn_bisimulation import crn_bisimulation_test, modular_crn_bisimulation_test
+from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
+                                          modular_crn_bisimulation_test,
+                                          crn_bisimulations)
 
 SKIP_SLOW = True
 
@@ -327,12 +329,12 @@ class BisimulationTests(unittest.TestCase):
         partial = dict()
         partial['x2'] = ['B', 'D']
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     permissive = 'loopsearch',
-                                     interpretation = partial)
+                                     interpretation = partial,
+                                     permissive = 'loopsearch')
         self.assertTrue(v)
 
         partial['x3'] = ['C']
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, 
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = partial,
                                      permissive = 'loopsearch')
         self.assertFalse(v)
@@ -439,7 +441,7 @@ class BisimulationTests(unittest.TestCase):
         i10 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
 
 
-        inters = list(crn_bisimulation_test(fcrn, icrn, fs, iterate = True))[1:]
+        inters = list(crn_bisimulations(fcrn, icrn))[1:]
         for r in inters:
             for e, i in enumerate([i01, i02, i03, i04, i05, i06, i07, i08, i09, i10], 1):
                 if r == i:
