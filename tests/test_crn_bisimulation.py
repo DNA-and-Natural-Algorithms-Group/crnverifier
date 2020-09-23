@@ -17,90 +17,65 @@ from crnverifier.crn_bisimulation import (crn_bisimulation_test,
 SKIP_SLOW = True
 
 class HelperTests(unittest.TestCase):
-    def test_modularity_condition(self):
-        from collections import Counter
+    def test_modularity_example_01(self):
         from crnverifier.crn_bisimulation import moduleCond
-        module = """ B <=> e101
-                     e104 -> e103 + e105
-                     e101 -> e102 + e103 + e104
+        module = """ a <=> i1
+                     b + i1 -> i2 + w3
+                     i2 -> c + w4
                  """
-        module = [[Counter({'B': 1}), Counter({'e101': 1})], 
-                  [Counter({'e101': 1}), Counter({'B': 1})], 
-                  [Counter({'e104': 1}), Counter({'e103': 1, 'e105': 1})],
-                  [Counter({'e101': 1}), Counter({'e102': 1, 'e103': 1, 'e104': 1})]]
+        module, _ = parse_crn(module)
         fsc = {'A', 'B', 'C'}
-        isc = {'A', 'B', 'C'}
+        isc = {'a', 'b', 'c'}
 
-        minter1 = {'A': Counter({'A': 1}), 
-                   'B': Counter({'B': 1}), 
-                   'C': Counter({'C': 1}), 
-                   'e101': Counter({'B': 1}),
-                   'e102': Counter(), 
-                   'e103': Counter(), 
-                   'e104': Counter({'B': 1}),
-                   'e105': Counter()} 
-        assert moduleCond(module, fsc, isc, minter1) is False
+        bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['C'], 'w3': [], 'w4': []}
+        assert moduleCond(module, fsc, isc, bisim) is True
+        bisim = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'i1': ['B'], 'i2': ['C'], 'w3': [], 'w4': []}
+        assert moduleCond(module, fsc, isc, bisim) is True
+        bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['A','B'], 'w3': [], 'w4': []}
+        assert moduleCond(module, fsc, isc, bisim) is False
 
-        minter2 = {'A': Counter({'A': 1}), 
-                   'B': Counter({'B': 1}), 
-                   'C': Counter({'C': 1}), 
-                   'e101': Counter({'B': 1}), 
-                   'e102': Counter(),
-                   'e103': Counter(), 
-                   'e104': Counter(), 
-                   'e105': Counter()}
-        self.assertNotEqual(minter1, minter2)
-        assert moduleCond(module, fsc, isc, minter2) is True
-
-        fsc = {'B'}
-        isc = {'B'}
-        minter3 = {'B': Counter({'B': 1}), 
-                   'e101': Counter({'B': 1}), 
-                   'e102': Counter(),
-                   'e103': Counter(), 
-                   'e104': Counter({'B': 1}), 
-                   'e105': Counter()}
-        self.assertNotEqual(minter1, minter3)
-        assert moduleCond(module, fsc, isc, minter3) is False
-
-        minter4 = {'B': Counter({'B': 1}), 
-                   'e101': Counter({'B': 1}), 
-                   'e102': Counter(),
-                   'e103': Counter(), 
-                   'e104': Counter(), 
-                   'e105': Counter()}
-        self.assertNotEqual(minter3, minter4)
-        assert moduleCond(module, fsc, isc, minter4) is True
-
-    def test_modularity_condition_02(self):
-        from collections import Counter
+    def test_modularity_example_02(self):
         from crnverifier.crn_bisimulation import moduleCond
-        module = [[Counter({'A': 1}), Counter({'e106': 1})],
-                  [Counter({'e106': 1}), Counter({'A': 1})],
-                  [Counter({'A': 1}), Counter({'e100': 1})], 
-                  [Counter({'e100': 1}), Counter({'A': 1})],
-                  [Counter({'e100': 1}), Counter({'e106': 1, 'A': 1})],
-                  [Counter({'e106': 1, 'A': 1}), Counter({'e100': 1})]]
-        fsc, isc = {'A', 'B', 'C'}, set()
-        inter = {'A': Counter({'A': 1}), 
-                 'e100': Counter({'A': 2}),
-                 'e106': Counter({'A': 1})}
-        assert moduleCond(module, fsc, isc, inter) is False
-        fsc, isc = {'A'}, {'A'}
-        inter  = {'A': Counter({'A': 1}), 
-                  'e100': Counter({'A': 2}), 
-                  'e106': Counter({'A': 1})}
-        assert moduleCond(module, fsc, isc, inter) is True
+        module = """ b <=> e1
+                     e1 -> e2 + e3 + e4
+                     e4 -> e1 + e5
+                 """
+        module, _ = parse_crn(module)
+        fsc = {'B'}
+        isc = {'b'}
 
-        #imodule = "a + b -> c + d"
-        #fsm = set('ABCD')
-        #ism = set('abcd')
-        #minter = {'a': 'A',
-        #          'b': 'B',
-        #          'c': 'C',
-        #          'd': 'D'}
-        #x = modularity_condition(imodule, fsm, ism, minter)
-        #print(x)
+        minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
+        assert moduleCond(module, fsc, isc, minter) is True
+
+        minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': ['B'], 'e5': []} 
+        assert moduleCond(module, fsc, isc, minter) is True
+
+        minter = {'b': ['B'], 'e1': ['B', 'B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
+        assert moduleCond(module, fsc, isc, minter) is False
+
+        minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': []} 
+        assert moduleCond(module, fsc, isc, minter) is False
+        isc = {'b', 'e2'}
+        assert moduleCond(module, fsc, isc, minter) is True
+        isc = {'b', 'e5'}
+        minter = {'b': ['B'], 'e1': [], 'e2': [], 'e3': [], 'e4': [], 'e5': ['B']} 
+        assert moduleCond(module, fsc, isc, minter) is True
+
+        minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': ['B']} 
+        assert moduleCond(module, fsc, isc, minter) is False
+
+
+    def test_modularity_example_03(self):
+        from crnverifier.crn_bisimulation import moduleCond
+        module = """
+                    a <=> e6
+                    a <=> e1
+                    a + e6 <=> e1
+                """
+        module, _ = parse_crn(module)
+        fsc, isc = {'A'}, {'a'}
+        inter = {'a': ['A'], 'e1': ['A', 'A'], 'e6': ['A']}
+        assert moduleCond(module, fsc, isc, inter) is True
 
 class BisimulationTests(unittest.TestCase):
     def test_QingDong_thesis(self):
