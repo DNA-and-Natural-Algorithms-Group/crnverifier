@@ -154,7 +154,7 @@ def msdiv(s, l):
 def subsets(x):
     # generates all subsets of multiset x
     ks = list(x.keys())
-    vs = list([list(range(v+1)) for v in x.values()])
+    vs = list([list(range(v + 1)) for v in x.values()])
     for prod in itertools.product(*vs):
         # calls to keys and values with no dictionary modifications in between
         #  should produce the keys and values in the same order,
@@ -176,17 +176,20 @@ def enum(n, s, weights = None):
     """
     if weights is None:
         weights = [1] * n
+
     if n == 0:
         yield []
         return
+
     if len(weights) < n:
-        raise IndexError('{} weights given for {} parts'.format(len(weights),n))
+        raise IndexError(f'{len(weights)} weights given for {n} parts.')
     elif weights[0] < 0:
-        raise ValueError('Negative weight given')
+        raise ValueError('Negative weight given.')
     elif weights[0] == 0:
         for j in enum(n-1, s, weights[1:]):
             yield [Counter()] + j
         return
+
     if n == 1:
         sdivw = msdiv(s, weights[0])
         if sdivw is not False: 
@@ -838,7 +841,7 @@ def search_column():
     # Ok so let's make this the real "column search part" only!
     pass
 
-def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
+def searchc(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
     # Search column.  I.e. make sure every formal reaction can be implemented.
     """
     fcrn, icrn, fs, unknown and intrp, permcheck remain constant, i think.
@@ -901,42 +904,38 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
 
         untmp = list(unknown)
         untmp.remove(c)
-        n = 0
         for k in range(len(icrn)):
-            if T[k][c]:
-                ul = sicrn[k][0] - fcrn[c][0]
-                kl = list(ul.keys())
-                vl = list(ul.values())
-                nl = len(kl)
-                sl = fcrn[c][0] - sicrn[k][0]
-                tmpl = enum(nl, sl, vl)
-                ur = sicrn[k][1] - fcrn[c][1]
-                kr = list(ur.keys())
-                vr = list(ur.values())
-                nr = len(kr)
-                sr = fcrn[c][1] - sicrn[k][1]
-                tmpr = enum(nr, sr, vr)
-                for (i,j) in itertools.product(tmpl, tmpr):
-                    n += 1
-                    intrpleft = dict(list(zip(kl, i)))
-                    intrpright = dict(list(zip(kr, j)))
+            if not T[k][c]:
+                continue
+            # left 
+            ul = sicrn[k][0] - fcrn[c][0]
+            sl = fcrn[c][0] - sicrn[k][0]
+            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+            tmpl = enum(len(ul), sl, vl)
+            # right
+            ur = sicrn[k][1] - fcrn[c][1]
+            sr = fcrn[c][1] - sicrn[k][1]
+            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+            tmpr = enum(len(ur), sr, vr)
 
-                    checkCompatible = True
-                    for key in intrpleft:
-                        if key in intrpright and \
-                           any([intrpleft[key][fsp] != intrpright[key][fsp]
-                                for fsp in fs]):
-                            checkCompatible = False
-                            break
+            for i, j in itertools.product(tmpl, tmpr):
+                intrpleft = dict(list(zip(kl, i)))
+                intrpright = dict(list(zip(kr, j)))
 
-                    if not checkCompatible:
-                        continue
-
+                for key in set(intrpleft) & set(intrpright):
+                    if any([intrpleft[key][fsp] != intrpright[key][fsp] for fsp in fs]):
+                        # Incompatible dictionaries!
+                        break
+                else:
                     itmp = intrp.copy()
                     itmp.update(intrpleft)
                     itmp.update(intrpright)
-                    out = searchc(fcrn, icrn, fs, untmp, itmp, depth+1,
-                                  permcheck, [intr, max_depth] + state[2:])
+                    out = searchc(fcrn, icrn, fs, 
+                                  itmp, 
+                                  untmp, 
+                                  depth + 1,
+                                  permcheck, 
+                                  [intr, max_depth] + state[2:])
                     if next(out):
                         if not found:
                             found = True
@@ -979,7 +978,7 @@ def is_modular(bisim, icrn, common_is, common_fs):
     assert all(ci in bisim for ci in common_is)
     # All interpretations of common implementation species 
     # are part of common formal species.
-    assert all(cf in common_fs for ci in common_is for cf in bisim[ci])
+    # assert all(cf in common_fs for ci in common_is for cf in bisim[ci])
 
     def Y(s):
         return s in common_is
@@ -1138,8 +1137,8 @@ def crn_bisimulations(fcrn, icrn,
 
     unknown = [i for i in range(len(fcrn))]
     out = searchc(fcrn, icrn, set(formals), 
-                  unknown, 
                   intrp, 
+                  unknown, 
                   0, 
                   permissive,
                   [{}, 0, [[Counter(),Counter()],Counter()]])

@@ -16,6 +16,7 @@ from crnverifier.crn_bisimulation import (crn_bisimulation_test,
                                           crn_bisimulations)
 from crnverifier.crn_bisimulation import (is_modular, 
                                           same_reaction, 
+                                          enum,
                                           updateT, checkT)
 from crnverifier.deprecated import moduleCond
 
@@ -77,6 +78,26 @@ class JustCuriousTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_enum(self):
+
+        assert list(enum(0, Counter())) == [[]]
+        assert list(enum(0, Counter(), [])) == [[]]
+        assert list(enum(1, Counter(['C']), [1])) == [[Counter({'C': 1})]]
+        assert list(enum(1, Counter(['a', 'b']))) == [[Counter({'a': 1, 'b': 1})]]
+
+        out = [[Counter(), Counter({'B': 1, 'D': 1})], 
+               [Counter({'D': 1}), Counter({'B': 1})],
+               [Counter({'B': 1}), Counter({'D': 1})], 
+               [Counter({'B': 1, 'D': 1}), Counter()]]
+        assert list(enum(2, Counter(['B', 'D']), [1, 1])) == out
+
+        #print(list(enum(3, Counter(['A', 'B', 'C']), [1, 1, 1])))
+
+        with self.assertRaises(IndexError):
+            # one weight, two parts.
+            list(enum(2, Counter(['a']), [1]))
+
+
     def test_same_reaction(self):
         # literally same reaction.
         frxn = "A + B -> C"
@@ -114,7 +135,6 @@ class HelperTests(unittest.TestCase):
         frxn = [Counter(part) for part in fcrn[0]]
         irxn = [Counter(part) for part in icrn[0]]
         assert same_reaction(irxn, frxn, fs) is True
-
 
     def test_same_reaction_products(self):
         # product interpretation 1
@@ -196,7 +216,6 @@ class HelperTests(unittest.TestCase):
         irxn = [Counter(part) for part in icrn[0]]
         assert same_reaction(irxn, frxn, fs) is False
 
-
     def test_update_table_01(self):
         fcrn = "A + B -> C"
         icrn = "x + y -> c + d"
@@ -251,8 +270,7 @@ class HelperTests(unittest.TestCase):
                                           [False, True],
                                           [True, False]]
 
-
-    def test_update_table(self):
+    def test_update_table_large(self):
         fcrn = [[Counter({'A': 1, 'b': 1}), Counter({'c': 1})], 
                 [Counter({'b': 1}), Counter({'c': 1})],
                 [Counter({'c': 1}), Counter({'b': 1})],
@@ -388,7 +406,7 @@ class HelperTests(unittest.TestCase):
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
 
-        
+        print() 
         fsc, isc = {'A','B', 'C', 'D'}, {'a', 'b', 'c', 'd'}
         for e, bisim in enumerate(crn_bisimulations(fcrn, icrn)):
             print(e, bisim)

@@ -250,10 +250,7 @@ def main():
 
         # Unpack the verification results if it wasn't a timeout.
         (v, i) = (None, None) if v is None else v
-        if v is False:
-            i = i[0]
-
-        if v is not None:
+        if v:
             log.info('Returned interpretation:\n  ' + \
                      '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
             log.info('Interpreted CRN:\n  {}'.format( 
@@ -276,10 +273,7 @@ def main():
 
         # Unpack the verification results if it wasn't a timeout.
         (v, i) = (None, None) if v is None else v
-        if v is False:
-            i = i[2]
-
-        if v is not None:
+        if v:
             log.info("Returned interpretation:\n  " + \
                      '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
             for e, icrn in enumerate(icrns, 1):
