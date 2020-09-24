@@ -13,7 +13,11 @@ log = logging.getLogger(__name__)
 import copy
 import math
 import itertools
-from functools import reduce
+
+from .utils import interpret as interpretL
+from .deprecated import moduleCond
+
+
 from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
 
 class CRNBisimulationError(Exception):
@@ -824,11 +828,6 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
     # Search column.  I.e. make sure every formal reaction can be implemented.
     log.debug('Searching column ...')
     log.debug('State: {}'.format(state))
-    #log.debug('Original formal CRN:')
-    #[log.debug('  {}'.format(r)) for r in pretty_crn(fcrn)]
-    #log.debug('Original implementation CRN:')
-    #[log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
-    #log.debug('Formal species: {}'.format(fs))
 
     intr, max_depth = state[0:2]
     sicrn = subst(icrn, intrp)
@@ -922,78 +921,115 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
         yield False
         yield [intr, max_depth] + state[2:]
 
-def moduleCond(module, formCommon, implCommon, intrp):
-    # check whether the modularity condition (every implementation species can
-    # turn into common species with the same interpretation) is satisfied
-    # assumes intrp is complete and filtered, so intrp.keys() is a list of all
-    # implementation species in this module (and no others) algorithm is
-    # basically the graphsearch algorithm from perm, where all "minimal states"
-    # are each exactly one implementation species
+def is_modular(bisim, icrn, common_is, common_fs):
+    """ Check if a bisimulation satisfies the modularity condition.
 
-    # canBreak[k] is:
-    #   True if species k is known to decompose (via trivial reactions) into
-    #     species which are each either in implCommon or have an interpretation
-    #     containing nothing in formCommon, or known to decompose as such if
-    #     some set of other species each with interpretation strictly < do
-    #   [reach,produce] where reach is set of implementation species with
-    #     interpretation equal to that of k (known) reachable from k, and
-    #     produce is set of null species producible in a loop from k to k
+    The modularity condition is formulated with respect to a subset of *common
+    implementation* and *common formal* species, where each common
+    implementation species must interpet to a common formal species.  The
+    bisimulation is modular if every implementation species can turn into
+    common implementation species with the same interpretation via trivial
+    reactions (that is the interpretation of the reaction must be trival).
+    For details check JDW2019: Definition 3.3 (Modularity condition).
 
-    module = [[Counter(part) for part in rxn] for rxn in module]
-    intrp = {k : Counter(v) for k, v in intrp.items()}
+    (This is basically the graphsearch algorithm to check the permissive
+    condition, where all "minimal states" are each exactly one implementation
+    species.)
 
-    canBreak = {k: ((k in implCommon) or set(intrp[k]).isdisjoint(formCommon)
-                    or [set(),set()])
-                for k in intrp}
-    changed = True
+    Args:
+        bisim (dict): An interpretation which is a CRN bisimulation.
+        icrn (list[lists]): An implementation CRN.
+        common_is (set): A set of common implementation species.
+        common_fs (set): A set of common formal species.
 
-    tr = [rxn for rxn in module if (lambda x,y: msleq(x,y) and msleq(y,x))
-          (interpret(rxn[0],intrp),interpret(rxn[1],intrp))]
+    Returns:
+        bool: True if modularity condition is satisfied.
+    """
+    # All common implementation species are part of the interpretation.
+    assert all(ci in bisim for ci in common_is)
+    # All interpretations of common implementation species 
+    # are part of common formal species.
+    assert all(cf in common_fs for ci in common_is for cf in bisim[ci])
 
-    while changed:
-        changed = False
-        for k in canBreak:
-            if canBreak[k] is True: continue
+    def Y(s):
+        return s in common_is
+    def Z(s):
+        return len(set(bisim[s]) & common_fs) == 0
 
-            for rxn in tr:
-                if k in rxn[0] and \
-                   set(rxn[0] - Counter([k])).issubset(canBreak[k][1]):
-                    # reactants of rxn are one copy of k and some null species
-                    #  producible in a loop from k to k
-                    nulls = set()
-                    theOne = None
-                    for sp in rxn[1]:
-                        if intrp[sp] == Counter():
-                            nulls.add(sp)
-                        elif not msleq(intrp[k],intrp[sp]):
-                            canBreak[k] = True
-                            changed = True
-                            break
-                        else:
-                            if canBreak[sp] is True:
-                                canBreak[k] = True
-                                changed = True
-                                break
-                            theOne = sp
+    trivial_rxns = [] # trivial reactions
+    for rxn in icrn:
+        iR = interpretL(rxn[0], bisim) 
+        iP = interpretL(rxn[1], bisim) 
+        if sorted(iR) == sorted(iP):
+            trivial_rxns.append(rxn)
 
-                    if canBreak[k] is True:
+    done = {s for s in bisim if Y(s) or Z(s)}
+    todo = {s: [set(), set()] for s in bisim if s not in done} 
+    # todo[s] = [reach, produce]
+
+    def is_contained(a, b):
+        # True if multiset a is contained in multiset b.
+        b = b[:]
+        try:
+            [b.remove(s) for s in a]
+        except ValueError as err:
+            return False
+        return True
+
+    reset = len(todo) > 0
+    while reset:
+        reset = False
+        for r in list(todo.keys()): # start at any of the non-common intermediates
+            [r_reach, r_produce] = todo[r]
+            for R, P in trivial_rxns:
+                if r not in R:
+                    continue
+                nR = R[:]
+                nR.remove(r)
+                if set(nR) > r_produce:
+                    # There is at least one more reactant which (as far as we
+                    # have seen) cannot be produced by r.
+                    continue
+
+                nullsp, mystic = set(), set()
+                for p in P:
+                    if p in done or (not is_contained(bisim[r], bisim[p])): 
+                        # If p is done, then any other p in P is either {} or
+                        # it is also a reactant which must be checked
+                        # separately. Alternatively, if the interpretation
+                        # of products contains the interpretation
+                        # of reactants and more, then we can call this one
+                        # done and move on to check p.
+                        done.add(r)
+                        del todo[r]
                         break
-
-                    if theOne not in canBreak[k][0]:
-                        canBreak[k][0].add(theOne)
-                        changed = True
-
-                    if not (canBreak[theOne][0] <= canBreak[k][0]):
-                        canBreak[k][0] |= canBreak[theOne][0]
-                        changed = True
-
-                    if k in canBreak[theOne][0]:
-                        loopable = nulls | canBreak[theOne][1]
-                        if not loopable <= canBreak[k][1]:
-                            canBreak[k][1] |= loopable
-                            changed = True
-
-    return all([canBreak[k] is True for k in canBreak])
+                    elif len(bisim[p]) == 0:
+                        nullsp.add(p)
+                    else:
+                        mystic.add(p)
+                if r in done:
+                    reset = True
+                    break
+                # Now investigate the mysterious "non-common implementation"
+                # products which interpret to a formal species, but are not
+                # known to be exit states.
+                for p in mystic: 
+                    if p not in r_reach:
+                        r_reach.add(p)
+                        reset = True
+                    [p_reach, p_produce] = todo[p]
+                    if not (p_reach <= r_reach):
+                        # anything reachable by products is reachable by reactants.
+                        r_reach |= p_reach
+                        reset = True
+                    if r in p_reach:
+                        # we know r -> p -> r, so all r_nullsp and p_nullsp 
+                        # can be produced at infinite amounts.
+                        loopable = nullsp | p_produce
+                        if not (loopable <= r_produce):
+                            r_produce |= loopable
+                            reset = True
+    return len(todo) == 0
 
 def crn_bisimulations(fcrn, icrn, 
                       interpretation = None,
@@ -1155,11 +1191,13 @@ def modular_crn_bisimulation_test(fcrns, icrns, formals,
                                        formals = mfs, 
                                        permissive = permissive, 
                                        permissive_depth = permissive_depth):
+            if bisim is None:
+                break
             # Get all formal and implementation species that are in
             # common with at least one other module.
             fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
             isc = {i for i, m in ispc.items() if e in m and len(m) > 1}
-            if moduleCond(icrn, fsc, isc, bisim):
+            if is_modular(bisim, icrn, isc, fsc):
                 #TODO: re-insert the iterate part here ...
                 inter.update(bisim)
                 break

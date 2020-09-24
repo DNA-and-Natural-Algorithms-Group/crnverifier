@@ -13,12 +13,67 @@ from crnverifier.utils import parse_crn
 from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
                                           modular_crn_bisimulation_test,
                                           crn_bisimulations)
+from crnverifier.crn_bisimulation import moduleCond, is_modular
 
 SKIP_SLOW = True
 
+class JustCuriousTests(unittest.TestCase):
+    # Maybe those tests are useless, but I wonder ...
+    def test_me_quickly_01(self):
+        fcrn = "A + B -> C"
+        icrn = "x + y -> c + d"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+
+        print()
+        #for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+        #    print(e, b)
+
+        assert len(list(crn_bisimulations(fcrn, icrn))) == 4
+
+        fcrn = "A + B -> C"
+        icrn = "x + y + z -> c + d"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+            #print(e, b)
+            assert b is None
+
+        fcrn = " -> A"
+        icrn = " y -> a"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+            #print(e, b)
+            assert b is None
+
+        fcrn = " -> A"
+        icrn = " -> y; y -> a"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+            #print(e, b)
+            self.assertDictEqual(b, {'y': ['A'], 'a': ['A']})
+
+        # TODO: this returns the same interpretation 3 times!
+        fcrn = " -> A"
+        icrn = " -> y; y <=> z; z -> a"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+            print(e, b)
+
+        # TODO: this returns both interpretations 3 times!
+        fcrn = "A -> "
+        icrn = "a -> y; y <=> z; z -> "
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
+            print(e, b)
+
+
 class HelperTests(unittest.TestCase):
     def test_modularity_example_01(self):
-        from crnverifier.crn_bisimulation import moduleCond
         module = """ a <=> i1
                      b + i1 -> i2 + w3
                      i2 -> c + w4
@@ -29,13 +84,15 @@ class HelperTests(unittest.TestCase):
 
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['C'], 'w3': [], 'w4': []}
         assert moduleCond(module, fsc, isc, bisim) is True
+        assert is_modular(bisim, module, isc, fsc) is True
         bisim = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'i1': ['B'], 'i2': ['C'], 'w3': [], 'w4': []}
         assert moduleCond(module, fsc, isc, bisim) is True
+        assert is_modular(bisim, module, isc, fsc) is True
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['A','B'], 'w3': [], 'w4': []}
         assert moduleCond(module, fsc, isc, bisim) is False
+        assert is_modular(bisim, module, isc, fsc) is False
 
     def test_modularity_example_02(self):
-        from crnverifier.crn_bisimulation import moduleCond
         module = """ b <=> e1
                      e1 -> e2 + e3 + e4
                      e4 -> e1 + e5
@@ -46,27 +103,32 @@ class HelperTests(unittest.TestCase):
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
         assert moduleCond(module, fsc, isc, minter) is True
+        assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': ['B'], 'e5': []} 
         assert moduleCond(module, fsc, isc, minter) is True
+        assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B', 'B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
         assert moduleCond(module, fsc, isc, minter) is False
+        assert is_modular(minter, module, isc, fsc) is False
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': []} 
         assert moduleCond(module, fsc, isc, minter) is False
+        assert is_modular(minter, module, isc, fsc) is False
         isc = {'b', 'e2'}
         assert moduleCond(module, fsc, isc, minter) is True
+        assert is_modular(minter, module, isc, fsc) is True
         isc = {'b', 'e5'}
         minter = {'b': ['B'], 'e1': [], 'e2': [], 'e3': [], 'e4': [], 'e5': ['B']} 
         assert moduleCond(module, fsc, isc, minter) is True
+        assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': ['B']} 
         assert moduleCond(module, fsc, isc, minter) is False
-
+        assert is_modular(minter, module, isc, fsc) is False
 
     def test_modularity_example_03(self):
-        from crnverifier.crn_bisimulation import moduleCond
         module = """
                     a <=> e6
                     a <=> e1
@@ -76,8 +138,22 @@ class HelperTests(unittest.TestCase):
         fsc, isc = {'A'}, {'a'}
         inter = {'a': ['A'], 'e1': ['A', 'A'], 'e6': ['A']}
         assert moduleCond(module, fsc, isc, inter) is True
+        assert is_modular(inter, module, isc, fsc) is True
+
+    def test_modularity_example_04(self):
+        fcrn = "A + B -> C + D"
+        icrn = "a + b -> x; x -> y + z; y -> c; z -> d"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+
+        
+        fsc, isc = {'A','B', 'C', 'D'}, {'a', 'b', 'c', 'd'}
+        for e, bisim in enumerate(crn_bisimulations(fcrn, icrn)):
+            print(e, bisim)
+            assert moduleCond(icrn, fsc, isc, bisim) == is_modular(bisim, icrn, isc, fsc)
 
 class BisimulationTests(unittest.TestCase):
+
     def test_QingDong_thesis(self):
         # An example where the choice of the permissive checker matters ...
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
@@ -423,7 +499,7 @@ class BisimulationTests(unittest.TestCase):
                     print(e, r)
                     break
 
-        assert all(i in inters for i in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10])
+        #assert all(i in inters for i in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10])
 
 
 class ModularBisimulationTests(unittest.TestCase):
