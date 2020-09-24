@@ -76,3 +76,55 @@ def moduleCond(module, formCommon, implCommon, intrp):
 
     return all([canBreak[k] is True for k in canBreak])
 
+def update(fcrn, icrn, fs):
+    # the um, er, um, completely recalculates the table from scratch.
+    # assumes subst has already been applied to implementation icrn.
+    # This should be logically equivalent to the UpdateTable in the MS thesis
+    # for compiled DNA reactions (we think).
+
+    # WARNING:
+    # If an implementation CRN has directly catalytic species, the code below
+    # may fail (though thesis psuedocode is correct).  
+    # E.g.  i3 + i7 --> i12 + i7 + i8
+    m = len(icrn)
+    r = []
+    for i in range(len(icrn)):
+        rr = []
+        for j in range(len(fcrn)):
+            t1 = fcrn[j][0] - icrn[i][0]
+            t2 = icrn[i][0] - fcrn[j][0]
+            t3 = fcrn[j][1] - icrn[i][1]
+            t4 = icrn[i][1] - fcrn[j][1]
+            if set(t2).isdisjoint(set(fs)) and set(t4).isdisjoint(set(fs)):
+                if list(t1.keys()) == []:
+                    if list(t3.keys()) == []:
+                        rr.append(True)
+                    else:
+                        if list(t4.keys()) == []:
+                            rr.append(False)
+                        else:
+                            rr.append(True)
+                else:
+                    if list(t2.keys()) == []:
+                        rr.append(False)
+                    else:
+                        if list(t3.keys()) == []:
+                            rr.append(True)
+                        else:
+                            if list(t4.keys()) == []:
+                                rr.append(False)
+                            else:
+                                rr.append(True)
+            else:
+                rr.append(False)
+        t1 = icrn[i][0] - icrn[i][1]
+        t2 = icrn[i][1] - icrn[i][0]
+        if (set(t1).isdisjoint(set(fs)) or not set(t2).issubset(set(fs))) and \
+                (set(t2).isdisjoint(set(fs)) or not set(t1).issubset(set(fs))):
+            rr.append(True)
+        else:
+            rr.append(False)
+        r.append(rr)
+    return r
+
+

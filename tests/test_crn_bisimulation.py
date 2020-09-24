@@ -9,11 +9,15 @@ logger.setLevel(logging.DEBUG)
 
 import unittest
 
+from collections import Counter
 from crnverifier.utils import parse_crn
 from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
                                           modular_crn_bisimulation_test,
                                           crn_bisimulations)
-from crnverifier.crn_bisimulation import moduleCond, is_modular
+from crnverifier.crn_bisimulation import (is_modular, 
+                                          same_reaction, 
+                                          updateT, checkT)
+from crnverifier.deprecated import moduleCond
 
 SKIP_SLOW = True
 
@@ -73,6 +77,244 @@ class JustCuriousTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
+    def test_same_reaction(self):
+        # literally same reaction.
+        frxn = "A + B -> C"
+        irxn = "A + B -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        # trying to break the old code ... 
+        frxn = "A + B -> C + B"
+        irxn = "A + b -> B"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+    def test_same_reaction_wrong(self):
+        # trying to break the old code ... 
+        frxn = "A -> C + D"
+        irxn = "A + y -> C + y"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+        # trying to break the old code ... 
+        frxn = "A -> C"
+        irxn = "A + y -> C + y"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+
+    def test_same_reaction_products(self):
+        # product interpretation 1
+        frxn = "A + B -> C + D"
+        irxn = "A + B -> c"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        # product interpretation 2
+        frxn = "A + B -> C"
+        irxn = "A + B -> c + d"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        # product interpretation 3
+        frxn = "A + B -> C"
+        irxn = "A + B -> "
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+        # product interpretation 4
+        frxn = "A + B -> C"
+        irxn = "A + B -> C + B"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+    def test_same_reaction_reactants(self):
+        frxn = "A + B -> C"
+        irxn = "a -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        # Potential null species ...
+        frxn = "A -> C + D"
+        irxn = "a + b -> C + D"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        # Potential null species ...
+        frxn = "A -> C + D"
+        irxn = "A + b -> C + D"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is True
+
+        frxn = "A + B -> C"
+        irxn = "A + B + A -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+        frxn = "A + B -> C"
+        irxn = "A -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        frxn = [Counter(part) for part in fcrn[0]]
+        irxn = [Counter(part) for part in icrn[0]]
+        assert same_reaction(irxn, frxn, fs) is False
+
+
+    def test_update_table_01(self):
+        fcrn = "A + B -> C"
+        icrn = "x + y -> c + d"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+
+        assert updateT(fcrn, icrn, fs) == [[True, True]]
+
+        fcrn = "A + B -> C"
+        icrn = "A + B -> C + d"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+        assert updateT(fcrn, icrn, fs) == [[True, False]] 
+
+        # TODO: this returns the same interpretation 3 times!
+        fcrn = " -> A"
+        icrn = " -> y; y <=> z; z -> a"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+        assert updateT(fcrn, icrn, fs) == [[True, True], 
+                                          [True, True],
+                                          [True, True], 
+                                          [True, True]]
+
+        # TODO: this returns the same interpretation 3 times!
+        fcrn = " -> A"
+        icrn = " -> A; A <=> A; A -> A"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+        assert updateT(fcrn, icrn, fs) == [[True, False],
+                                          [False, True], 
+                                          [False, True],
+                                          [False, True]]
+
+        # TODO: this returns the same interpretation 3 times!
+        fcrn = " -> A"
+        icrn = " -> ;  <=> ;  -> A"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+        assert updateT(fcrn, icrn, fs) == [[False, True],
+                                          [False, True],
+                                          [False, True],
+                                          [True, False]]
+
+
+    def test_update_table(self):
+        fcrn = [[Counter({'A': 1, 'b': 1}), Counter({'c': 1})], 
+                [Counter({'b': 1}), Counter({'c': 1})],
+                [Counter({'c': 1}), Counter({'b': 1})],
+                [Counter({'b': 1}), Counter({'b': 2})]]
+        icrn = [[Counter({'A': 1}), Counter({'i7': 1})],
+                [Counter({'i7': 1}), Counter({'A': 1})],
+                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
+                [Counter({'b': 1}), Counter({'i96': 1})],
+                [Counter({'b': 1}), Counter({'i148': 1})],
+                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
+                [Counter({'b': 1}), Counter({'i96': 1})],
+                [Counter({'b': 1}), Counter({'i148': 1})],
+                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
+                [Counter({'b': 1}), Counter({'i96': 1})],
+                [Counter({'b': 1}), Counter({'i148': 1})],
+                [Counter({'c': 1}), Counter({'i340': 1})], 
+                [Counter({'c': 1}), Counter({'i340': 1})], 
+                [Counter({'i19': 1}), Counter({'c': 1})],
+                [Counter({'i96': 1}), Counter({'c': 1})],
+                [Counter({'i148': 1}), Counter({'b': 2})],
+                [Counter({'i340': 1}), Counter({'b': 1})]]
+        fs = {'c', 'b', 'A'}
+        result = [[False, False, False, False, True],
+                  [False, False, False, False, True],
+                  [True,  True,  False, True,  True], 
+                  [False, True,  False, True,  True],
+                  [False, True,  False, True,  True],
+                  [True,  True,  False, True,  True], 
+                  [False, True,  False, True,  True], 
+                  [False, True,  False, True,  True],
+                  [True,  True,  False, True,  True],
+                  [False, True,  False, True,  True], 
+                  [False, True,  False, True,  True],
+                  [False, False, True,  False, True],
+                  [False, False, True,  False, True], 
+                  [True,  True,  False, False, True],
+                  [True,  True,  False, False, True], 
+                  [False, False, False, True,  True],
+                  [False, False, True,  False, True]]
+        assert updateT(fcrn, icrn, fs) == result
+
+    def test_check_table(self):
+        table = [[True, True]]
+        assert checkT(table) is True
+        table = [[False, False]]
+        assert checkT(table) is False
+        table = [[True, True],
+                 [False, False]]
+        assert checkT(table) is False
+        table = [[False, True],
+                 [True, False]]
+        assert checkT(table) is True
+        table = [[False, False],
+                 [True, True]]
+        assert checkT(table) is False
+        table = [[True, False],
+                 [True, False]]
+        assert checkT(table) is True
+        table = [[True, True, False],
+                 [False, True, False]]
+        assert checkT(table) is True
+
     def test_modularity_example_01(self):
         module = """ a <=> i1
                      b + i1 -> i2 + w3

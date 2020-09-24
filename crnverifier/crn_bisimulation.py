@@ -15,9 +15,6 @@ import math
 import itertools
 
 from .utils import interpret as interpretL
-from .deprecated import moduleCond
-
-
 from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
 
 class CRNBisimulationError(Exception):
@@ -218,76 +215,95 @@ def interleq(x, y, intrp):
     return msleq(interpret(x,intrp),interpret(y,intrp))
 
 def subst(crn, intrp):
-    # Substitute implementation species for formal species in CRN according to interpretation.
-    return [[interpret(j,intrp) for j in rxn] for rxn in crn]
+    # Substitute implementation species for formal species in CRN according to
+    # interpretation.
+    return [[interpret(j, intrp) for j in rxn] for rxn in crn]
+
+def check_delimiting(fcrn, icrn, fs, inter):
+    # TODO: untested and not used, just to keep the idea ...
+    sicrn = subst(icrn, inter)
+    T = updateT(fcrn, sicrn, fs)
+    return checkT(T)
 
 def checkT(T):
-    """Check table...
+    """ Check (partial) interpretation for the delimiting condition.
 
-    # checks the table to see if there is a whole row or a whole (non-trivial)
-    # column that's all false, so we have to roll back.  Returns False if we
-    # have to roll back.  (i.e. our partial interpretation fails the delimiting
-    # condition)
+    If there is a whole row, or a whole (non-trivial) column False, then 
+    the permissive condition is violated and we have to roll back.
+
+    Returns:
+        bool: True if there is no row or (non-trivial) colum with all False values.
     """
-    for i in range(len(T)):
-        if True not in T[i]:
+    for row in T:
+        if all(not b for b in row):
             return False
-    for i in range(len(T[0])-1):
-        r = False
-        for j in range(len(T)):
-            r = r or T[j][i]
-        if not r:
+    n = len(T[0])
+    for e, col in enumerate(zip(*T), 1):
+        if e != n and all(not b for b in col):
             return False
     return True
 
-def update(fcrn, icrn, fs):
-    # the um, er, um, completely recalculates the table from scratch.
-    # assumes subst has already been applied to implementation icrn.
-    # This should be logically equivalent to the UpdateTable in the MS thesis
-    # for compiled DNA reactions (we think).
+def same_reaction(irxn, frxn, fs):
+    """ Check if irxn *could* implement frxn.
 
-    # WARNING:
-    # If an implementation CRN has directly catalytic species, the code below
-    # may fail (though thesis psuedocode is correct).  
+    This assumes that irxn is already interpreted using the formal species fs.
+    SB: Note, that I introduced a new expression expression here, see below.
+    """
+    fr = set(frxn[0] - irxn[0]) # exess formal reactants 
+    ir = set(irxn[0] - frxn[0]) # exess implementation reactants 
+    fp = set(frxn[1] - irxn[1]) # exess formal products
+    ip = set(irxn[1] - frxn[1]) # exess implementation products
+    if ir & fs or ip & fs:
+        # There are excess formal reactants or excess formal products
+        # in the implementation reaction, so this reaction cannot
+        # implement the formal reaction.
+        return False
+    if len(fr) and len(ir) == 0:
+        # There are excess formal reactants and 
+        # no more implementation reactants.
+        return False 
+    if len(fp) and len(ip) == 0:
+        # There are excess formal products and 
+        # no more implementation products.
+        return False
+    if len(fp) and len(ir) and len(ip) and ir == ip:
+        # NOTE: This line is new:
+        # Example:    A -> B + C
+        # cannot be:  A + y -> B + y
+        return False
+    return True
+
+def updateT(fcrn, icrn, fs):
+    """ Calculate a table with bool entries.
+
+    Assumes an implementation CRN where all implementation species
+    have been replaced with their formal interpretation. Thus, the
+    implementation CRN contains a mix of formal species and/or 
+    implementation species.
+
+    row num = len(icrn)
+    col num = len(fcrn) + 1
+
+    """
+    # RJ: This should be logically equivalent to the UpdateTable in the MS
+    # thesis for compiled DNA reactions (we think).
+    # WARNING: If an implementation CRN has directly catalytic species, the
+    # code below may fail (though thesis psuedocode is correct).  
     # E.g.  i3 + i7 --> i12 + i7 + i8
-    m = len(icrn)
     r = []
-    for i in range(len(icrn)):
-        rr = []
-        for j in range(len(fcrn)):
-            t1 = fcrn[j][0] - icrn[i][0]
-            t2 = icrn[i][0] - fcrn[j][0]
-            t3 = fcrn[j][1] - icrn[i][1]
-            t4 = icrn[i][1] - fcrn[j][1]
-            if set(t2).isdisjoint(set(fs)) and set(t4).isdisjoint(set(fs)):
-                if list(t1.keys()) == []:
-                    if list(t3.keys()) == []:
-                        rr.append(True)
-                    else:
-                        if list(t4.keys()) == []:
-                            rr.append(False)
-                        else:
-                            rr.append(True)
-                else:
-                    if list(t2.keys()) == []:
-                        rr.append(False)
-                    else:
-                        if list(t3.keys()) == []:
-                            rr.append(True)
-                        else:
-                            if list(t4.keys()) == []:
-                                rr.append(False)
-                            else:
-                                rr.append(True)
-            else:
-                rr.append(False)
-        t1 = icrn[i][0] - icrn[i][1]
-        t2 = icrn[i][1] - icrn[i][0]
-        if (set(t1).isdisjoint(set(fs)) or not set(t2).issubset(set(fs))) and \
-                (set(t2).isdisjoint(set(fs)) or not set(t1).issubset(set(fs))):
-            rr.append(True)
-        else:
+    for irxn in icrn:
+        rr = [same_reaction(irxn, frxn, fs) for frxn in fcrn]
+
+        ir = set(irxn[0] - irxn[1]) # "non-trivial" reactants
+        ip = set(irxn[1] - irxn[0]) # "non-trivial" products
+        if (ir & fs and ip <= fs) or (ip & fs and ir <= fs):
+            # If the implementation reactants contain a formal species and
+            # all implementation products are (different) formal species, or
+            # if the implementation products contain a formal species and
+            # all implementation reactants are (different) formal species:
             rr.append(False)
+        else: # Could be trival
+            rr.append(True)
         r.append(rr)
     return r
 
@@ -310,18 +326,12 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
         permissive_depth = None
 
     intr, max_depth, permissive_failure = state
-    log.debug('Checking permissive condition:')
-    log.debug('Original formal CRN:')
-    [log.debug('  {}'.format(r)) for r in pretty_crn(fcrn)]
-    log.debug('Original implementation CRN:')
-    [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
-    log.debug('Formal species: {}'.format(fs))
-
+    log.info(f'Checking permissive condition using {permcheck=} {permissive_depth=}.')
     tr = []
     fr = []
     hasht = set([])
     crn2 = subst(icrn, intrp)
-    T = update(fcrn, crn2, fs)
+    T = updateT(fcrn, crn2, fs)
     if not checkT(T):
         return [False, state]
 
@@ -643,7 +653,7 @@ def equations(fcrn, icrn, fs, intrp, permcheck, state):
             itmp[assign[i]] = Counter({atomsleft[i]: 1})
 
         sicrntmp = subst(icrn, itmp)
-        T = update(fcrn, sicrntmp, fs)
+        T = updateT(fcrn, sicrntmp, fs)
         if (not checkT(T)) or any([not T[i][-1] for i in unknown]):
             # either the table is bad, or a reaction we are assuming
             #  is trivial can no longer be trivial
@@ -705,7 +715,7 @@ def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
     """
     intr, max_depth = state[0:2]
     sicrn = subst(icrn, intrp)
-    T = update(fcrn, sicrn, fs)
+    T = updateT(fcrn, sicrn, fs)
     if not checkT(T):
         # delimiting condition is not satisfied
         yield False
@@ -824,34 +834,51 @@ def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
         yield [intr, max_depth] + state[2:]
     return
 
+def search_column():
+    # Ok so let's make this the real "column search part" only!
+    pass
+
 def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
     # Search column.  I.e. make sure every formal reaction can be implemented.
-    log.debug('Searching column ...')
-    log.debug('State: {}'.format(state))
+    """
+    fcrn, icrn, fs, unknown and intrp, permcheck remain constant, i think.
 
-    intr, max_depth = state[0:2]
+    Depth will update, state will update.
+
+    """
+
+    log.info('Searching column ...')
+    log.info(f'{unknown=}')
+    log.info(f'{intrp=}')
+    log.info(f'{depth=}')
+    log.info(f'{state=}')
+
+    # A quick check if the delimiting condition is still satisfied.
     sicrn = subst(icrn, intrp)
-    T = update(fcrn, sicrn, fs)
+    T = updateT(fcrn, sicrn, fs)
     if not checkT(T):
         yield False
         yield state
         return
+
+    # Rollback to original interpretation if you reach the max_depth,
+    # I assume this is a hack to do some sort of depth/breadth first search.
+    intr, max_depth = state[0:2]
     if max_depth >= 0 and depth > max_depth:
         intr = intrp.copy()
         max_depth = depth
-    min = len(icrn)+1
-    c = -1  # this will be the next column to solve, if possible
-    found = False
-    for i in unknown:
-        tmp = 0
-        for j in range(len(icrn)):
-            if T[j][i]:
-                tmp += 1
-        if tmp < min:
-            min = tmp
-            c = i
 
-    if c < 0:  # done with column search.  transition to row search!
+    found = False # Changes to True if you found something ... but what?
+
+    # Find the next column to solve. 
+    c, worst = -1, len(icrn) + 1
+    for i in unknown: # The column indices of formal reactions 
+        # Count the number of True's in the column.
+        tmp = sum(T[j][i] for j in range(len(icrn)))
+        if tmp < worst:
+            c, worst = i, tmp
+
+    if c < 0: # Done with column search, transition to row search.
         untmp = []
         for i in range(len(icrn)):
             if not (set(sicrn[i][0])-set(fs) == set([]) and \
@@ -869,6 +896,9 @@ def searchc(fcrn, icrn, fs, unknown, intrp, depth, permcheck, state):
             yield next(out)
             return
     else:
+        # search_column(T, c, unknown, icrn, fcrn, intrp, sicrn)
+        # This part will recursively call searchc 
+
         untmp = list(unknown)
         untmp.remove(c)
         n = 0
@@ -1107,7 +1137,11 @@ def crn_bisimulations(fcrn, icrn,
     log.debug(f'Permissive argument: {permissive}')
 
     unknown = [i for i in range(len(fcrn))]
-    out = searchc(fcrn, icrn, formals, unknown, intrp, 0, permissive,
+    out = searchc(fcrn, icrn, set(formals), 
+                  unknown, 
+                  intrp, 
+                  0, 
+                  permissive,
                   [{}, 0, [[Counter(),Counter()],Counter()]])
 
     correct = next(out)

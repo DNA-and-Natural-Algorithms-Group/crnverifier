@@ -1422,7 +1422,6 @@ class TestFormalBasis(unittest.TestCase):
         assert sorted(basis_raw) == sorted(FB)
 
     def test_STW19_EX02(self):
-        from nuskell.crnutils import removeSpecies, assign_crn_species
         icrn = """
         G <=> i4
         T + G -> i13
