@@ -12,10 +12,15 @@ log = logging.getLogger(__name__)
 
 import copy
 import math
-import itertools
+from itertools import product, permutations, combinations, chain
 
 from .utils import interpret as interpretL
 from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
+
+from .deprecated import subsets, enum
+
+class SpeciesAssignmentError(Exception):
+    pass
 
 class CRNBisimulationError(Exception):
     pass
@@ -56,6 +61,67 @@ def formalize(intrp):
         else:
             intr[sp] = intrp[sp]
     return intr
+
+def subsetsL(x):
+    """ Generate all (uniqe) multi-subsets of a list x. """
+    return chain(*[combinations(x, l) for l in range(len(x), -1, -1)])
+
+def substractL(l1, l2):
+    l2 = l2[:]
+    for el in l1:
+        l2.remove(el)
+    return l2
+
+def is_contained(a, b):
+        # True if multiset a is contained in multiset b.
+        b = b[:]
+        try:
+            [b.remove(s) for s in a]
+        except ValueError as err:
+            return False
+        return True
+
+def enumL(n, l, weights = None):
+    """ Returns combinations to assign elements of list l to n variables. """
+    if n == 0:
+        yield []
+        return
+
+    if weights is None:
+        weights = [1 for x in range(n)]
+    w = weights[0]
+
+    def ldiv(l, s):
+        """ True, if all elements are multiples of s """
+        if s == 1 or len(l) == 0:
+            return l
+        l = Counter(l)
+        for k, v in l.items():
+            if v % s:
+                break
+            l[k] = int(v/s)
+        else:
+            return tuple(l.elements())
+        return None
+        
+    if n == 1:
+        l = ldiv(l, w)
+        if l is None:
+            raise SpeciesAssignmentError
+        yield [tuple(l)]
+        return
+
+    for ss in set(subsetsL(l)):
+        assert is_contained(ss, l)
+        wss = ldiv(ss, w)
+        if wss is None:
+            continue
+        try:
+            for j in enumL(n-1, substractL(ss, l), weights[1:]):
+                yield [wss] + j
+        except SpeciesAssignmentError:
+            continue
+    return
 
 def solve_contejean_devie(a):
     """ Algorithm from Contejean & Devie 1994.
@@ -133,75 +199,6 @@ def msleq(x,y):
         if x[k] > y[k]:
             return False
     return True
-
-def mstimes(s, l):
-    # return l*s for integer l, multiset s
-    c = Counter()
-    for k in s:
-        c[k] = l * s[k]
-    return c
-
-def msdiv(s, l):
-    # return s/l for integer l, multiset s if l divides s, otherwise False
-    # l divides s if l divides s[k] for every key k
-    c = Counter()
-    for k in s:
-        c[k] = int(s[k]/l)
-        if c[k] * l != s[k]:
-            return False
-    return c
-
-def subsets(x):
-    # generates all subsets of multiset x
-    ks = list(x.keys())
-    vs = list([list(range(v + 1)) for v in x.values()])
-    for prod in itertools.product(*vs):
-        # calls to keys and values with no dictionary modifications in between
-        #  should produce the keys and values in the same order,
-        #  and product should respect that order (I think)
-        yield Counter(dict(list(zip(ks, prod)))) + Counter()
-
-def enum(n, s, weights = None):
-    """Partition multiset s into n ordered (possibly empty) parts.  
-
-    For example:
-        enum(2, [a, b]) = [ [[], [a, b]], 
-                            [[a], [b]], 
-                            [[b], [a]], 
-                            [[a, b],[]] ]
-
-    If weights are given, enumerates all lists l of n multisets such that 
-        s = sum(weights[i] * l[i]) 
-    (if weights are not given, equivalent to weights[i] = 1 for all i)
-    """
-    if weights is None:
-        weights = [1] * n
-
-    if n == 0:
-        yield []
-        return
-
-    if len(weights) < n:
-        raise IndexError(f'{len(weights)} weights given for {n} parts.')
-    elif weights[0] < 0:
-        raise ValueError('Negative weight given.')
-    elif weights[0] == 0:
-        for j in enum(n-1, s, weights[1:]):
-            yield [Counter()] + j
-        return
-
-    if n == 1:
-        sdivw = msdiv(s, weights[0])
-        if sdivw is not False: 
-            yield [sdivw]
-        return
-
-    for i in subsets(s):
-        ss = mstimes(i, weights[0])
-        if not msleq(ss, s):
-            continue
-        for j in enum(n-1, s-ss):
-            yield [i] + j
 
 def interpret(s, intrp):
     # return interpretation of s according to intrp
@@ -644,7 +641,7 @@ def equations(fcrn, icrn, fs, intrp, permcheck, state):
 
     atomsleft = list(set(fs) - atoms)
     l = len(atomsleft)
-    for assign in itertools.permutations(us, l): # works even if l == 0
+    for assign in permutations(us, l): # works even if l == 0
         # each assign is a tuple of implementation species to be interpreted
         #  as exactly one formal species, matching the order of atomsleft
         # if l == 0 then it.permutations(us, l) == [()], a list with
@@ -802,7 +799,7 @@ def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
             nr = len(kr)
             sr = fcrn[c][1] - sicrn[k][1]
             tmpr = enum(nr, sr, vr)
-            for (i,j) in itertools.product(tmpl, tmpr):
+            for (i,j) in product(tmpl, tmpr):
             # for i in tmpl:
                 intrpleft = dict(list(zip(kl, i)))
                 # for j in tmpr:
@@ -837,11 +834,66 @@ def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
         yield [intr, max_depth] + state[2:]
     return
 
-def search_column():
+def search_column(fcrn, icrn, fs, inter, unknown, depth):
     # Ok so let's make this the real "column search part" only!
-    pass
+    # yield all combinations of successful column assignments.
 
-def searchc(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
+    #print(f'\nsearching {depth=}')
+    # A quick check if the delimiting condition is still satisfied.
+    sicrn = subst(icrn, inter)
+    T = updateT(fcrn, sicrn, fs)
+    if not checkT(T):
+        #print(f'reset with {inter=}')
+        raise SpeciesAssignmentError
+
+    if len(unknown) == 0: 
+        #print(f'returning {inter=} at depth {depth=}')
+        yield inter
+        return
+
+    # Start with the unknown index with the minimal number of True's in the column.
+    unknown = sorted(unknown, 
+                     key = lambda x: sum(T[j][x] for j in range(len(sicrn))), 
+                     reverse = True)
+
+    for c in unknown:
+        unknown = [u for u in unknown if u != c]
+        for k in range(len(sicrn)):
+            if not T[k][c]:
+                continue
+            # left 
+            ul = sicrn[k][0] - fcrn[c][0]
+            sl = fcrn[c][0] - sicrn[k][0]
+            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+            tmpl = enumL(len(ul), list(sl.elements()), vl)
+            # right
+            ur = sicrn[k][1] - fcrn[c][1]
+            sr = fcrn[c][1] - sicrn[k][1]
+            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+            tmpr = enumL(len(ur), list(sr.elements()), vr)
+
+            for i, j in product(tmpl, tmpr):
+                intrpleft = dict(zip(kl, i))
+                intrpright = dict(zip(kr, j))
+                for key in set(intrpleft) & set(intrpright):
+                    if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
+                        for fsp in fs]):
+                        # Incompatible dictionaries!
+                        break
+                else:
+                    itmp = inter.copy()
+                    itmp.update({k: Counter(v) for k, v in intrpleft.items()})
+                    itmp.update({k: Counter(v) for k, v in intrpright.items()})
+                    try:
+                      for j in search_column(fcrn, icrn, fs, itmp, unknown, depth + 1):
+                        itmp.update(j.items())
+                        yield itmp
+                    except SpeciesAssignmentError:
+                        continue
+    return
+
+def find_bisimulation(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
+
     # Search column.  I.e. make sure every formal reaction can be implemented.
     """
     fcrn, icrn, fs, unknown and intrp, permcheck remain constant, i think.
@@ -849,20 +901,6 @@ def searchc(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
     Depth will update, state will update.
 
     """
-
-    log.info('Searching column ...')
-    log.info(f'{unknown=}')
-    log.info(f'{intrp=}')
-    log.info(f'{depth=}')
-    log.info(f'{state=}')
-
-    # A quick check if the delimiting condition is still satisfied.
-    sicrn = subst(icrn, intrp)
-    T = updateT(fcrn, sicrn, fs)
-    if not checkT(T):
-        yield False
-        yield state
-        return
 
     # Rollback to original interpretation if you reach the max_depth,
     # I assume this is a hack to do some sort of depth/breadth first search.
@@ -872,80 +910,25 @@ def searchc(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
         max_depth = depth
 
     found = False # Changes to True if you found something ... but what?
-
-    # Find the next column to solve. 
-    c, worst = -1, len(icrn) + 1
-    for i in unknown: # The column indices of formal reactions 
-        # Count the number of True's in the column.
-        tmp = sum(T[j][i] for j in range(len(icrn)))
-        if tmp < worst:
-            c, worst = i, tmp
-
-    if c < 0: # Done with column search, transition to row search.
+    for inter in search_column(fcrn, icrn, fs, intrp, unknown, depth):
+        #print(f'Passes permissive condition: {inter}')
+        sicrn = subst(icrn, inter)
         untmp = []
         for i in range(len(icrn)):
             if not (set(sicrn[i][0])-set(fs) == set([]) and \
                     set(sicrn[i][1])-set(fs) == set([])):
                 untmp.append(i)
-        out = searchr(fcrn, icrn, fs, untmp, intrp, depth, permcheck,
+        out = searchr(fcrn, icrn, fs, untmp, inter, depth, permcheck, 
                       [intr, max_depth] + state[2:])
-        if next(out):
-            yield True
-            found = True
-            for outintrp in out:
+
+        if next(out): # The result for this particular interpretation.
+            if not found:
+                yield True
+                found = True
+            log.debug(f'-, {inter}')
+            for e, outintrp in enumerate(out):
+                log.debug(f'{e}, {outintrp}')
                 yield outintrp
-        else:
-            yield False
-            yield next(out)
-            return
-    else:
-        # search_column(T, c, unknown, icrn, fcrn, intrp, sicrn)
-        # This part will recursively call searchc 
-
-        untmp = list(unknown)
-        untmp.remove(c)
-        for k in range(len(icrn)):
-            if not T[k][c]:
-                continue
-            # left 
-            ul = sicrn[k][0] - fcrn[c][0]
-            sl = fcrn[c][0] - sicrn[k][0]
-            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-            tmpl = enum(len(ul), sl, vl)
-            # right
-            ur = sicrn[k][1] - fcrn[c][1]
-            sr = fcrn[c][1] - sicrn[k][1]
-            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
-            tmpr = enum(len(ur), sr, vr)
-
-            for i, j in itertools.product(tmpl, tmpr):
-                intrpleft = dict(list(zip(kl, i)))
-                intrpright = dict(list(zip(kr, j)))
-
-                for key in set(intrpleft) & set(intrpright):
-                    if any([intrpleft[key][fsp] != intrpright[key][fsp] for fsp in fs]):
-                        # Incompatible dictionaries!
-                        break
-                else:
-                    itmp = intrp.copy()
-                    itmp.update(intrpleft)
-                    itmp.update(intrpright)
-                    out = searchc(fcrn, icrn, fs, 
-                                  itmp, 
-                                  untmp, 
-                                  depth + 1,
-                                  permcheck, 
-                                  [intr, max_depth] + state[2:])
-                    if next(out):
-                        if not found:
-                            found = True
-                            yield True
-                        for outintrp in out:
-                            yield outintrp
-                    else:
-                        state = next(out)
-                        intr, max_depth = state[0:2]
-
     if not found:
         yield False
         yield [intr, max_depth] + state[2:]
@@ -1136,7 +1119,7 @@ def crn_bisimulations(fcrn, icrn,
     log.debug(f'Permissive argument: {permissive}')
 
     unknown = [i for i in range(len(fcrn))]
-    out = searchc(fcrn, icrn, set(formals), 
+    out = find_bisimulation(fcrn, icrn, set(formals), 
                   intrp, 
                   unknown, 
                   0, 
