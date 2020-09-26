@@ -19,7 +19,7 @@ from crnverifier.crn_bisimulation import (is_modular,
                                           search_column, subst, inter_list,
                                           enumL, subsetsL, SpeciesAssignmentError,
                                           updateT, checkT)
-from crnverifier.deprecated import moduleCond, subsets, enum
+from crnverifier.deprecated import moduleCond
 
 SKIP_SLOW = True
 
@@ -31,7 +31,7 @@ class JustCuriousTests(unittest.TestCase):
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
 
-        print()
+        #print()
         #for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
         #    print(e, b)
 
@@ -57,26 +57,30 @@ class JustCuriousTests(unittest.TestCase):
         icrn = " -> y; y -> a"
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-            #print(e, b)
-            self.assertDictEqual(b, {'y': ['A'], 'a': ['A']})
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        assert len(bisims) == 1
+        self.assertDictEqual(bisims[0], {'y': ['A'], 'a': ['A']})
 
-        # TODO: this returns the same interpretation 3 times!
         fcrn = " -> A"
         icrn = " -> y; y <=> z; z -> a"
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-            print(e, b)
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        assert len(bisims) == 1
+        self.assertDictEqual(bisims[0], {'a': ['A'], 'y': ['A'], 'z': ['A']})
 
-        # TODO: this returns both interpretations 3 times!
         fcrn = "A -> "
         icrn = "a -> y; y <=> z; z -> "
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-            print(e, b)
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        assert len(bisims) == 2
+        b1 = {'a': ['A'], 'y': [], 'z': []}
+        b2 = {'a': ['A'], 'y': ['A'], 'z': ['A']}
+        assert b1 in bisims
+        assert b2 in bisims
 
+#@unittest.skip('debug')
 class TestColumnSearch(unittest.TestCase):
     def test_search_column(self):
         fcrn = """A + B -> C + D
@@ -104,6 +108,7 @@ class TestColumnSearch(unittest.TestCase):
             assert checkT(T)
 
 
+#@unittest.skip('debug')
 class HelperTests(unittest.TestCase):
     def test_subsets(self):
         #['A']      => [[], ['A']]
@@ -119,30 +124,6 @@ class HelperTests(unittest.TestCase):
                 [(), ('A',), ('B',), 
                  ('A', 'A'), ('A', 'B'), 
                  ('A', 'A', 'B')])
-
-
-        # assert list(subsets(Counter())) == [Counter()]
-        # ss = list(subsets(Counter({'A': 1})))
-        # es = [Counter(), Counter({'A': 1})]
-        # assert ss == es
-        # ss = list(subsets(Counter({'A': 2})))
-        # es = [Counter(), Counter({'A': 1}), Counter({'A': 2})]
-        # assert ss == es
-        # ss = list(subsets(Counter({'B': 1, 'A': 1})))
-        # es = [Counter(), 
-        #       Counter({'A': 1}),
-        #       Counter({'B': 1}),
-        #       Counter({'B': 1, 'A': 1})]
-        # assert ss == es
-        # ss = list(subsets(Counter({'A': 2, 'B': 1})))
-        # es = [Counter(),
-        #       Counter({'B': 1}), 
-        #       Counter({'A': 1}),
-        #       Counter({'A': 1, 'B': 1}),
-        #       Counter({'A': 2}),
-        #       Counter({'A': 2, 'B': 1})]
-        # assert ss == es
-
 
     def test_enum_noweights(self):
         # For example: 
@@ -216,29 +197,6 @@ class HelperTests(unittest.TestCase):
                     [('A', 'A'), ('B',), ()],
                     [(), ('B',), ('A', 'A')],
                     [('A',), ('B',), ('A',)]])
-
-    def test_enum_old(self):
-        assert list(enum(0, Counter())) == [[]]
-        assert list(enum(1, Counter(['A']), [1])) == [[Counter({'A': 1})]]
-        print(list(enum(1, Counter(['A']), [2])))
-        #assert list(enum(1, Counter(['A']), [2])) == [[Counter(), Counter({'A': 2})],
-        #                                              [Counter({'A':1}), Counter({'A': 1})],
-        #                                              [Counter({'A': 2}), Counter()]]
-
-        #assert list(enum(1, Counter(['a', 'b']))) == [[Counter({'a': 1, 'b': 1})]]
-
-        out = [[Counter(), Counter({'B': 1, 'D': 1})], 
-               [Counter({'D': 1}), Counter({'B': 1})],
-               [Counter({'B': 1}), Counter({'D': 1})], 
-               [Counter({'B': 1, 'D': 1}), Counter()]]
-        assert list(enum(2, Counter(['B', 'D']), [1, 1])) == out
-
-        #print(list(enum(3, Counter(['A', 'B', 'C']), [1, 1, 1])))
-
-        with self.assertRaises(IndexError):
-            # one weight, two parts.
-            list(enum(2, Counter(['a']), [1]))
-
 
     def test_same_reaction(self):
         # literally same reaction.
@@ -551,12 +509,13 @@ class HelperTests(unittest.TestCase):
         print() 
         fsc, isc = {'A','B', 'C', 'D'}, {'a', 'b', 'c', 'd'}
         for e, bisim in enumerate(crn_bisimulations(fcrn, icrn)):
-            print(e, bisim)
+            print(e, sorted(bisim.items()))
             assert moduleCond(icrn, fsc, isc, bisim) == is_modular(bisim, icrn, isc, fsc)
 
+#@unittest.skip('debug')
 class BisimulationTests(unittest.TestCase):
 
-    def dont_test_QingDong_thesis(self):
+    def test_QingDong_thesis(self):
         # An example where the choice of the permissive checker matters ...
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
@@ -898,24 +857,23 @@ class BisimulationTests(unittest.TestCase):
         for r in inters:
             for e, i in enumerate([i01, i02, i03, i04, i05, i06, i07, i08, i09, i10], 1):
                 if r == i:
-                    print(e, r)
+                    print(f'{e:2d}: {sorted(i.items())}')
                     break
+            else:
+                # wrong interpretation?
+                assert False
 
         #assert all(i in inters for i in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10])
 
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        inters = list(search_column(fcrn, icrn))[1:]
-        for r in inters:
-            r = inter_list(r)
-            print(r)
-            #for e, i in enumerate([i01, i02, i03, i04, i05, i06, i07, i08, i09, i10], 1):
-            #    if r == i:
-            #        print(e, r)
-            #        break
+        #fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+        #icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+        #inters = list(search_column(fcrn, icrn))[1:]
+        #for r in inters:
+        #    r = inter_list(r)
+        #    print(r)
 
 
-
+#@unittest.skip('debug')
 class ModularBisimulationTests(unittest.TestCase):
     def test_qian_roessler_modular_bisimulation(self):
         (fcrns, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)

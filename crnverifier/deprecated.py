@@ -320,3 +320,226 @@ def searchc(fcrn, icrn, fs, intrp, unknown, depth, permcheck, state):
         yield False
         yield [intr, max_depth] + state[2:]
 
+def equations(fcrn, icrn, fs, intrp, permcheck, state):
+    # All unknown implementation reactions (i.e. those with some unknown
+    # species) must be trivial.  Build the matrix for the the "solve" function,
+    # to see whether the interpretation can be completed as required.  Also
+    # note that "unknow" is not used; the unknown species are recalculated here
+    # because "unknow" contains only those implementation reactions that have
+    # not been solved by the row search, but other rows (i.e. implementation
+    # reactions) may be implicitly solved by the partial interpretation.
+    unknown = []
+    ust = set([])
+    sicrn = subst(icrn, intrp)
+    for i in range(len(sicrn)):
+        tmp = set(sicrn[i][0])-set(fs)
+        tmp |= set(sicrn[i][1])-set(fs)
+        ust |= tmp
+        if tmp != set([]):
+            unknown.append(i)  # list of implementation reactions with an unknown species
+    us = list(ust)  # all species that remain unknown in current (partial) interpretation
+    
+    # check atomic condition
+    atoms = set()
+    for k in intrp:
+        sps = list(intrp[k].keys())
+        if len(sps) == 1 and intrp[k][sps[0]] == 1:
+            atoms.add(sps[0])
+
+    atomsleft = list(set(fs) - atoms)
+    l = len(atomsleft)
+    for assign in permutations(us, l): # works even if l == 0
+        # each assign is a tuple of implementation species to be interpreted
+        #  as exactly one formal species, matching the order of atomsleft
+        # if l == 0 then it.permutations(us, l) == [()], a list with
+        #  element which is the zero-length tuple,
+        #  so this loop will run exactly once with no change to itmp
+        itmp = dict(intrp)
+        for i in range(l):
+            assert assign[i] not in itmp
+            itmp[assign[i]] = Counter({atomsleft[i]: 1})
+
+        sicrntmp = subst(icrn, itmp)
+        T = updateT(fcrn, sicrntmp, fs)
+        if (not checkT(T)) or any([not T[i][-1] for i in unknown]):
+            # either the table is bad, or a reaction we are assuming
+            #  is trivial can no longer be trivial
+            continue
+
+        ustmp = [sp for sp in us if sp not in assign]
+        if not ustmp:
+            out = perm(fcrn, icrn, fs, itmp, permcheck, state)
+            if out[0]:
+                return out
+            else:
+                state = out[1]
+                continue
+
+        n = 0
+        a = []
+        for i in unknown:
+            a.append([])
+            for j in ustmp:
+                a[n].append(sicrntmp[i][0][j]-sicrntmp[i][1][j])
+
+            a[n].append(0)
+            n += 1
+
+        for isp in ustmp:
+            itmp[isp] = Counter()
+
+        check = True
+        for fsp in fs:
+            n = 0
+            for j in unknown:
+                a[n].pop()
+                a[n].append(sicrntmp[j][0][fsp]-sicrntmp[j][1][fsp])
+                n += 1
+
+            s = solve(a)
+            if s == []:
+                check = False
+                break
+            else:
+                for j in range(len(ustmp)):
+                    itmp[ustmp[j]][fsp] = s[j]
+
+        if check:
+            for isp in ustmp:
+                itmp[isp] = itmp[isp] + Counter()
+            out = perm(fcrn, icrn, fs, itmp, permcheck, state)
+            if out[0]:
+                return out
+            else:
+                state = out[1]
+                continue
+
+    return [False, state]
+
+
+def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
+    """ Row search: every implementation reaction must interpret to a formal reaction 
+        (or be trivial).
+    """
+    from .crn_bisimulation import subst, updateT, checkT, enumL, searchr, perm
+    intr, max_depth = state[0:2]
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+    if not checkT(T):
+        # delimiting condition is not satisfied
+        yield False
+        yield state
+        return
+    if unknown == []:
+        for fsp in fs:
+            checkFs = False
+            for isp in intrp:
+                if intrp[isp] and not intrp[isp] - Counter([fsp]):
+                    checkFs = True
+                    break
+            if not checkFs:
+                # atomic condition is not satisfied
+                yield False
+                yield state
+                return
+        out = perm(fcrn, icrn, fs, intrp, permcheck, state)
+        yield out[0]
+        yield out[1]
+        return
+    if max_depth >= 0 and d > max_depth:
+        intr = intrp.copy()
+        max_depth = d
+    found = False
+    min = len(fcrn)+1
+    k = -1  # next row reaction we will solve
+    nt = 0  # number of possibly trivial reactions according to table
+    for i in unknown:
+        tmp = T[i].count(True)
+        if T[i][-1] == True:
+            nt += 1
+            tmp -= 1
+        if tmp < min and tmp > 0:
+            min = tmp
+            k = i
+    if nt == len(unknown) and not nontriv:  # all unsearched rows could be trivial -- try it!
+        out = equations(fcrn, icrn, fs, intrp, permcheck,
+                        [intr, max_depth] + state[2:])
+        if out[0]:
+            yield True
+            yield out[1]
+            found = True
+        else:
+            # if we just tried equations and it didn't work, then we
+            #  shouldn't try again unless something changes
+            nontriv = True
+            state = out[1]
+            intr, max_depth = state[0:2]
+    if k < 0:
+        if not found:
+            yield False
+            yield [intr, max_depth] + state[2:]
+        return
+    untmp = list(unknown)
+    untmp.remove(k)
+    if T[k][-1] == True:  # if implementation reaction #k can be trivial, leave it that way and try more rows
+        out = searchr(fcrn, icrn, fs, untmp, intrp, d, permcheck,
+                      [intr, max_depth] + state[2:], nontriv)
+        if next(out):
+            if not found:
+                found = True
+                yield True
+            for outintr in out:
+                yield outintr
+        else:
+            state = next(out)
+            intr, max_depth = state[0:2]
+    n = 0
+    for c in range(len(fcrn)): # try to match implementation reaction #k with some formal reaction
+        if T[k][c]:        
+            ul = sicrn[k][0] - fcrn[c][0]
+            kl = list(ul.keys())
+            vl = list(ul.values())
+            nl = len(kl)
+            sl = fcrn[c][0] - sicrn[k][0]
+            tmpl = enum(nl, sl, vl)
+            ur = sicrn[k][1] - fcrn[c][1]
+            kr = list(ur.keys())
+            vr = list(ur.values())
+            nr = len(kr)
+            sr = fcrn[c][1] - sicrn[k][1]
+            tmpr = enum(nr, sr, vr)
+            for (i,j) in product(tmpl, tmpr):
+            # for i in tmpl:
+                intrpleft = dict(list(zip(kl, i)))
+                # for j in tmpr:
+                intrpright = dict(list(zip(kr, j)))
+                checkCompatible = True
+                for key in intrpleft:
+                    if key in intrpright and \
+                       any([intrpright[key][fsp] != intrpleft[key][fsp]
+                            for fsp in fs]):
+                        checkCompatible = False
+                        break
+
+                if not checkCompatible:
+                    continue
+
+                itmp = intrp.copy()
+                itmp.update(intrpleft)
+                itmp.update(intrpright)
+                out = searchr(fcrn, icrn, fs, untmp, itmp, d+1, permcheck,
+                              [intr, max_depth] + state[2:])
+                if next(out):
+                    if not found:
+                        found = True
+                        yield True
+                    for outintrp in out:
+                        yield outintrp
+                else:
+                    state = next(out)
+                    intr, max_depth = state[0:2]
+    if not found:
+        yield False
+        yield [intr, max_depth] + state[2:]
+    return
+
