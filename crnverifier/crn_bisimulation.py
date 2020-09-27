@@ -12,14 +12,16 @@ log = logging.getLogger(__name__)
 
 import copy
 import math
+from collections import Counter
 from itertools import product, permutations, combinations, chain
 
 from .utils import interpret as interpretL
-from collections import Counter # i.e. multiset (states of a CRN, interpretations, ...)
-
-from .deprecated import subsets, enum, searchr
+from .deprecated import subsets, enum # check_permissive
 
 class SpeciesAssignmentError(Exception):
+    pass
+
+class SearchDepthExceeded(Exception):
     pass
 
 class CRNBisimulationError(Exception):
@@ -36,6 +38,9 @@ def pretty_rxn(rxn, flag_internal = True):
     P = list(map(lambda r: 'i{{{}}}'.format(r[1]) if isinstance(
         r, tuple) else '{}'.format(r), rxn[1]))
     return '{} -> {}'.format(' + '.join(R), ' + '.join(P))
+
+def rl(rxn):
+    return [list(part.elements()) for part in rxn]
 
 def inter_counter(inter):
     # For internal representation of interpretations 
@@ -66,10 +71,15 @@ def subsetsL(x):
     """ Generate all (uniqe) multi-subsets of a list x. """
     return chain(*[combinations(x, l) for l in range(len(x), -1, -1)])
 
-def substractL(l1, l2):
+def subtractL(l2, l1, strict = True):
+    """Sustract lists: l2 - l1."""
     l2 = l2[:]
     for el in l1:
-        l2.remove(el)
+        try:
+            l2.remove(el)
+        except ValueError as err:
+            if strict:
+                raise err
     return l2
 
 def is_contained(a, b):
@@ -117,7 +127,7 @@ def enumL(n, l, weights = None):
         if wss is None:
             continue
         try:
-            for j in enumL(n-1, substractL(ss, l), weights[1:]):
+            for j in enumL(n-1, subtractL(l, ss), weights[1:]):
                 yield [wss] + j
         except SpeciesAssignmentError:
             continue
@@ -243,16 +253,22 @@ def checkT(T):
             return False
     return True
 
-def same_reaction(irxn, frxn, fs):
+def same_reaction(irxn, frxn, fs, counter = True):
     """ Check if irxn *could* implement frxn.
 
     This assumes that irxn is already interpreted using the formal species fs.
     SB: Note, that I introduced a new expression expression here, see below.
     """
-    fr = set(frxn[0] - irxn[0]) # exess formal reactants 
-    ir = set(irxn[0] - frxn[0]) # exess implementation reactants 
-    fp = set(frxn[1] - irxn[1]) # exess formal products
-    ip = set(irxn[1] - frxn[1]) # exess implementation products
+    if counter:
+        fr = set(frxn[0] - irxn[0]) # exess formal reactants 
+        ir = set(irxn[0] - frxn[0]) # exess implementation reactants 
+        fp = set(frxn[1] - irxn[1]) # exess formal products
+        ip = set(irxn[1] - frxn[1]) # exess implementation products
+    else:
+        fr = set(subtractL(frxn[0], irxn[0], strict = False)) # exess formal reactants 
+        ir = set(subtractL(irxn[0], frxn[0], strict = False)) # exess implementation reactants 
+        fp = set(subtractL(frxn[1], irxn[1], strict = False)) # exess formal products
+        ip = set(subtractL(irxn[1], frxn[1], strict = False)) # exess implementation products
     if ir & fs or ip & fs:
         # There are excess formal reactants or excess formal products
         # in the implementation reaction, so this reaction cannot
@@ -273,7 +289,7 @@ def same_reaction(irxn, frxn, fs):
         return False
     return True
 
-def updateT(fcrn, icrn, fs):
+def updateT(fcrn, icrn, fs, counter = True):
     """ Calculate a table with bool entries.
 
     Assumes an implementation CRN where all implementation species
@@ -292,10 +308,14 @@ def updateT(fcrn, icrn, fs):
     # E.g.  i3 + i7 --> i12 + i7 + i8
     r = []
     for irxn in icrn:
-        rr = [same_reaction(irxn, frxn, fs) for frxn in fcrn]
+        rr = [same_reaction(irxn, frxn, fs, counter) for frxn in fcrn]
 
-        ir = set(irxn[0] - irxn[1]) # "non-trivial" reactants
-        ip = set(irxn[1] - irxn[0]) # "non-trivial" products
+        if counter:
+            ir = set(irxn[0] - irxn[1]) # "non-trivial" reactants
+            ip = set(irxn[1] - irxn[0]) # "non-trivial" products
+        else:
+            ir = set(subtractL(irxn[0], irxn[1], strict = False)) # "non-trivial" reactants
+            ip = set(subtractL(irxn[1], irxn[0], strict = False)) # "non-trivial" products
         if (ir & fs and ip <= fs) or (ip & fs and ir <= fs):
             # If the implementation reactants contain a formal species and
             # all implementation products are (different) formal species, or
@@ -307,7 +327,131 @@ def updateT(fcrn, icrn, fs):
         r.append(rr)
     return r
 
-def perm(fcrn, icrn, fs, intrp, permcheck, state):
+def formal_states(fstate, inter, counter = False):
+    """ Generate a minimal set of istates which interpret to fstate.
+
+    The returned implementation states may interpret to supersets of fstate.
+    """
+    if len(fstate) == 0:
+        yield [] if not counter else Counter()
+    else:
+        fs = set(fstate).pop()
+
+
+
+        fs1 = fstate[0]
+        for k in inter:
+            if fs1 in inter[k]:
+                for out in formal_states(subtractL(fstate, inter[k], strict = False), 
+                                                    inter,
+                                                    counter):
+                    yield ([k] + out) if not counter else (Counter({k:1}) + out)
+
+def permissive_graphsearch(fcrn, icrn, fs, intrp, 
+                           permissive_depth = None):
+
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+    assert checkT(T) # Assuming this has been checked before calling permissive.
+
+    nulls = [k for k in intrp if not len(list(intrp[k]))]
+    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
+
+    #tr = [] # trivial reactions
+    #for rxn in icrn:
+    #    iR = interpretL(rxn[0], intrp) 
+    #    iP = interpretL(rxn[1], intrp) 
+    #    if sorted(iR) == sorted(iP):
+    #        tr.append(rxn)
+
+    #if trivial_rxns != tr:
+    #    print(trivial_rxns)
+    #    print(tr)
+
+
+    for i, frxn in enumerate(fcrn):
+        # build fr for this formal reaction
+        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+
+        """ Check whether every implementation of state "formal" can implement
+        the given formal reaction.
+        This function stores for each state the list of states it can reach.
+         -- w/o null species (except those producible by loops)
+        """
+        points = list([[x,set([]),[]] for x in formal_states(list(frxn[0].elements()), 
+                                                             inter_list(intrp),
+                                                             counter = True)])
+        # At this point, "points" contains an exhaustive and sufficient list of
+        # possible initial implementation states in which the current formal
+        # reaction #i must be able to fire (via a series of trivial reactions),
+        # Note that we will only want to test states in "points" that interpret
+        # to a state in which #i can fire.
+
+        # points[i][0] is the ith implementation state
+        # points[i][1] is all null species loopable from that state
+        # points[i][2][j] is True if points[j][0] is known to be reachable
+        #  (from state i without initial null species)
+        # exception: points[i][2] is True if a formal reaction is known to
+        #  be reachable from state i
+
+        rngl = list(range(len(points))) # same here...
+        for i in rngl:
+            points[i][2] = len(points)*[False]
+
+        changed, depth = True, 0
+        while changed and (permissive_depth is None or depth < permissive_depth):
+            changed, depth = False, depth + 1
+            for i in rngl:
+                if points[i][2] is not True:
+                    for rx in fr:
+                        if points[i][1].issuperset(rx[0] - points[i][0]):
+                            points[i][2] = True
+                            changed = True
+                            break
+
+                    if points[i][2] is True:
+                        continue
+
+                    for rx in trivial_rxns:
+                        if points[i][1].issuperset(rx[0] - points[i][0]):
+                            left = points[i][0] - rx[0]
+                            after = left + rx[1]
+                            for j in rngl:
+                                if msleq(points[j][0],after):
+                                    if points[j][2] is True:
+                                        points[i][2] = True
+                                        changed = True
+                                        break
+
+                                    if points[j][2][i]:
+                                        s = points[j][1].union(
+                                            [x for x in left if x in nulls])
+                                        if not s <= points[i][1]:
+                                            points[i][1] |= s
+                                            changed = True
+
+                                    if not points[i][2][j]:
+                                        points[i][2][j] = True
+                                        changed = True
+
+                                    for k in rngl:
+                                        if (not points[i][2][k]) \
+                                           and points[j][2][k]:
+                                            points[i][2][k] = True
+                                            changed = True
+
+                        if points[i][2] is True:
+                            break
+
+        if permissive_depth and changed:
+            raise SearchDepthExceeded(f'Permissive checker stopped at {depth=}')
+
+        if not all([p[2] is True for p in points]):
+            # failed states: 
+            return False, None
+    return True, depth
+        
+def check_permissive(fcrn, icrn, fs, intrp, permcheck):
     """ Check the permissive condition.
     
     Uses the original formal CRN  and original implementation CRN
@@ -324,32 +468,33 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
         permcheck = permcheck[0]
     else:
         permissive_depth = None
+    log.debug(f'Checking permissive condition using {permcheck=} {permissive_depth=}.')
 
-    intr, max_depth, permissive_failure = state
-    #log.info(f'Checking permissive condition using {permcheck=} {permissive_depth=}.')
-    tr = []
-    fr = []
-    hasht = set([])
-    crn2 = subst(icrn, intrp)
-    T = updateT(fcrn, crn2, fs)
-    if not checkT(T):
-        return [False, state]
+    if permcheck == 'graphsearch':
+        return permissive_graphsearch(fcrn, icrn, fs, intrp, 
+                                      permissive_depth)
 
-    nulls = [k for k in intrp if not len(list(intrp[k]))] # null species
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+    assert checkT(T) # Assuming this has been checked before calling permissive.
+
+    nulls = [k for k in intrp if not len(list(intrp[k]))]
+    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
 
     def cnstr(s):
+        """
         # given formal state s, generate minimal set of impl. states which
         #  interpret to a superset of s
         # = concatenation of any x such that s[0] in m(x) with
         #  all minimal implementations of s - m(x)
-        if list(s.keys()) == []:
+        """
+        if len(s) == 0:
             yield Counter()
         else:
             s1 = list(s.keys())[0]
             for k in intrp:
                 if s1 in intrp[k]:
-                    if (s - intrp[k])[s1] >= s[s1]:
-                        assert False
+                    assert not (s - intrp[k])[s1] >= s[s1]
                     for out in cnstr(s - intrp[k]):
                         yield Counter({k:1}) + out
 
@@ -377,7 +522,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
             if list((i[0] - s).keys()) == []:
                 return True
         ret = False
-        for i in tr:
+        for i in trivial_rxns:
             if list((i[0] - s).keys()) == []:
                 t = (s - i[0]) + i[1]
                 out = reactionsearch(t, d+1)
@@ -406,7 +551,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
                         return True
                 return False
             
-            for rx in tr:
+            for rx in trivial_rxns:
                 if ignore.issuperset(rx[0] - start):
                     # every element of rx[0] - start (multiset)
                     #  is also an element of ignore (set)
@@ -473,108 +618,11 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
 
         return False if not permissive_depth else None
 
-    def graphsearch(formal):
-        """Check whether every implementation of state "formal" can implement the given formal reaction.
-
-        This function stores for each state the list of states it can reach.
-         -- w/o null species (except those producible by loops)
-        """
-        points = list([[x,set([]),[]] for x in cnstr(formal)])
-        # points[i][0] is the ith implementation state
-        # points[i][1] is all null species loopable from that state
-        # points[i][2][j] is True if points[j][0] is known to be reachable
-        #  (from state i without initial null species)
-        # exception: points[i][2] is True if a formal reaction is known to
-        #  be reachable from state i
-        l = len(points) # let's not recalculate this every time...
-        rngl = list(range(l)) # same here...
-        for i in rngl:
-            points[i][2] = l*[False]
-
-        if permissive_depth:
-            d = 0
-        changed = True
-        while changed and ((not permissive_depth) or d < permissive_depth):
-            changed = False
-            if permissive_depth:
-                d = d + 1
-            for i in rngl:
-                if points[i][2] is not True:
-                    for rx in fr:
-                        if points[i][1].issuperset(rx[0] - points[i][0]):
-                            points[i][2] = True
-                            changed = True
-                            break
-
-                    if points[i][2] is True:
-                        continue
-
-                    for rx in tr:
-                        if points[i][1].issuperset(rx[0] - points[i][0]):
-                            left = points[i][0] - rx[0]
-                            after = left + rx[1]
-                            for j in rngl:
-                                if msleq(points[j][0],after):
-                                    if points[j][2] is True:
-                                        points[i][2] = True
-                                        changed = True
-                                        break
-
-                                    if points[j][2][i]:
-                                        s = points[j][1].union(
-                                            [x for x in left if x in nulls])
-                                        if not s <= points[i][1]:
-                                            points[i][1] |= s
-                                            changed = True
-
-                                    if not points[i][2][j]:
-                                        points[i][2][j] = True
-                                        changed = True
-
-                                    for k in rngl:
-                                        if (not points[i][2][k]) \
-                                           and points[j][2][k]:
-                                            points[i][2][k] = True
-                                            changed = True
-
-                        if points[i][2] is True:
-                            break
-
-        if permissive_depth and changed:
-            return None
-        return all([p[2] is True for p in points])
-    
-    n = 0
-    # build tr just once
-    for i in T:
-        if i.pop():
-            tr.append(icrn[n])
-        n += 1
-    for i in range(len(fcrn)):
+    for i, frxn in enumerate(fcrn):
         # build fr for this formal reaction
-        fr = []
-        for j in range(len(icrn)):
-            if T[j][i]:
-                fr.append(icrn[j])
+        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
 
-        ist = cnstr(fcrn[i][0])
-
-        if permcheck == "graphsearch":
-            out = graphsearch(fcrn[i][0])
-            if not out:
-                if max_depth == -2:
-                    return [False, [intr, max_depth, permissive_failure]]
-                if out is False: # proven unreachable
-                    max_depth = -1
-                else: # arbitrarily specified max search depth reached
-                    max_depth = -2
-                intr = intrp.copy()
-                permissive_failure[0] = fcrn[i]
-                permissive_failure[1] = ["Somewhere"]
-                return [False, [intr, max_depth, permissive_failure]]
-
-            continue
-       
+        ist = cnstr(frxn[0])
         # At this point, "ist" contains an exhaustive and sufficient list of
         # possible initial implementation states in which the current formal
         # reaction #i must be able to fire (via a series of trivial reactions),
@@ -585,7 +633,7 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
         spaceefficient = True # ... but only if we have space to store them
         for j in ist:
             tmp = interpret(j,intrp)
-            if msleq(fcrn[i][0], tmp):  # only test if reactants j interpret to allow #i to fire
+            if msleq(frxn[0], tmp):  # only test if reactants j interpret to allow #i to fire
                 t = False
                 for k in tested:
                     # will be a 0-length loop if spaceefficient
@@ -595,25 +643,80 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
                 if t:
                     continue
                 hasht = set([])
-                found = ((permcheck=="loopsearch") and loopsearch(j,fcrn[i][0])) \
+                found = ((permcheck=="loopsearch") and loopsearch(j,frxn[0])) \
                         or ((permcheck=="reactionsearch") and reactionsearch(j,0))
-                if not found: # didn't work, but keep track of stuff for user output
-                    if max_depth == -2:
-                        return [False, [intr, max_depth, permissive_failure]]
-                    if found is False: # reaction proven unreachable
-                        max_depth = -1
-                    else: # arbitrarily specified max search depth reached
-                        max_depth = -2
-                    intr = intrp.copy()
-                    permissive_failure[0] = fcrn[i]
-                    permissive_failure[1] = j
-                    return [False, [intr, max_depth, permissive_failure]]
+                if not found: 
+                    return False, (frxn, j)
                 elif not spaceefficient:
                     tested.append(j)
-    intr = intrp.copy()
-    return [True, intr]
+    return True, 0
 
-def solve_trivial(fcrn, icrn, fs, intrp, permcheck, state):
+def search_trivial(fcrn, icrn, fs, intrp, unknown = None, permcheck = 'graphsearch'):
+    """ A new trivial solver that returns all combinations, not just one multiple times ...
+    """
+    log.info(f'Trivial reaction solver: {unknown=}')
+
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+
+    # List of implementation reactions with an unknown species.
+    if unknown is None:
+        unknown = [i for i, irxn in enumerate(sicrn) if len(set(irxn[0]) - fs) or \
+                                                        len(set(irxn[1]) - fs)]
+    if not all(T[u][-1] for u in unknown):
+        raise SpeciesAssignmentError('no longer trivial-only.')
+    if unknown == []:
+        if not atomic_condition(intrp, fs):
+            log.debug(f'Atomic condition not satisfied.')
+            raise SpeciesAssignmentError('Atomic condition not satisfied.')
+        correct, info = check_permissive(fcrn, icrn, fs, intrp, permcheck)
+        if correct:
+            log.debug(f'Permissive condition satisfied ({info=}).')
+            yield intrp
+            return
+        log.debug(f'Permissive condition not satisfied ({info=}).')
+        raise SpeciesAssignmentError('Permissive condition not satisfied.')
+
+    for i in unknown:
+        irxn = sicrn[i]
+        log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => trivial')
+
+        fl = Counter({k:v for k, v in irxn[0].items() if k in fs})
+        fr = Counter({k:v for k, v in irxn[1].items() if k in fs})
+        ul = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k not in fs})
+        ur = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k not in fs})
+        log.debug(f'{fl=}, {fr=}')
+        log.debug(f'{ul=}, {ur=}')
+
+        [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+        tmpl = enumL(len(ul), list(fr.elements()), vl)
+        [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+        tmpr = enumL(len(ur), list(fl.elements()), vr)
+
+        unext = [u for u in unknown if u != i]
+        for i, j in product(tmpl, tmpr):
+            intrpleft = dict(zip(kl, i))
+            intrpright = dict(zip(kr, j))
+            log.debug(f'{intrpleft=}')
+            log.debug(f'{intrpright=}')
+            for key in set(intrpleft) & set(intrpright):
+                if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
+                        for fsp in fs]):
+                    # Incompatible dictionaries!
+                    break
+            else:
+                inext = intrp.copy()
+                inext.update({k: Counter(v) for k, v in intrpleft.items()})
+                inext.update({k: Counter(v) for k, v in intrpright.items()})
+                try:
+                    for isuccess in search_trivial(fcrn, icrn, fs, inext, unext):
+                        yield isuccess
+                except SpeciesAssignmentError:
+                    continue
+    return
+
+def find_one_trivial(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
+
     # All unknown implementation reactions (i.e. those with some unknown
     # species) must be trivial.  Build the matrix for the the "solve" function,
     # to see whether the interpretation can be completed as required.  Also
@@ -621,93 +724,86 @@ def solve_trivial(fcrn, icrn, fs, intrp, permcheck, state):
     # because "unknow" contains only those implementation reactions that have
     # not been solved by the row search, but other rows (i.e. implementation
     # reactions) may be implicitly solved by the partial interpretation.
-    unknown = []
-    ust = set([])
     sicrn = subst(icrn, intrp)
-    for i in range(len(sicrn)):
-        tmp = set(sicrn[i][0])-set(fs)
-        tmp |= set(sicrn[i][1])-set(fs)
-        ust |= tmp
-        if tmp != set([]):
-            unknown.append(i)  # list of implementation reactions with an unknown species
-    us = list(ust)  # all species that remain unknown in current (partial) interpretation
+
+    # List of implementation reactions with an unknown species.
+    unknown = [i for i, irxn in enumerate(sicrn) if len(set(irxn[0]) - fs) or \
+                                                   len(set(irxn[1]) - fs)]
+    # All species that remain unknown in current (partial) interpretation.
+    unassigned = set(s for irxn in sicrn for s in set(irxn[0]) - fs | set(irxn[1]) - fs)
     
-    # check atomic condition
-    atoms = set()
-    for k in intrp:
-        sps = list(intrp[k].keys())
-        if len(sps) == 1 and intrp[k][sps[0]] == 1:
-            atoms.add(sps[0])
+    # Find species that do not satisfy atomic condition
+    atoms_needed = list(fs - set().union(*[set(a) for a in intrp.values() if sum(a.values()) == 1]))
 
-    atomsleft = list(set(fs) - atoms)
-    l = len(atomsleft)
-    for assign in permutations(us, l): # works even if l == 0
-        # each assign is a tuple of implementation species to be interpreted
-        #  as exactly one formal species, matching the order of atomsleft
-        # if l == 0 then it.permutations(us, l) == [()], a list with
-        #  element which is the zero-length tuple,
-        #  so this loop will run exactly once with no change to itmp
-        itmp = dict(intrp)
-        for i in range(l):
-            assert assign[i] not in itmp
-            itmp[assign[i]] = Counter({atomsleft[i]: 1})
+    log.info(f'Trivial reaction solver: {unknown=}')
+    log.info(f'Missing atoms: {atoms_needed}')
+    log.info(f'Unknown species: {unassigned}')
 
-        sicrntmp = subst(icrn, itmp)
-        T = updateT(fcrn, sicrntmp, fs)
-        if (not checkT(T)) or any([not T[i][-1] for i in unknown]):
-            # either the table is bad, or a reaction we are assuming
-            #  is trivial can no longer be trivial
+    for assign in permutations(unassigned, len(atoms_needed)): # works even if l == 0
+        # each assign is a tuple of implementation species to be interpreted as
+        # exactly one formal species, matching the order of atoms_needed.
+        log.debug(f'{assign=}')
+
+        parti = intrp.copy()
+        for i, a in enumerate(atoms_needed):
+            assert assign[i] not in parti
+            parti[assign[i]] = Counter({a: 1})
+        log.debug(f'{parti=}')
+
+        sicrn = subst(icrn, parti)
+        T = updateT(fcrn, sicrn, fs)
+        if (not checkT(T)) or any([T[i][-1] is False for i in unknown]):
             continue
 
-        ustmp = [sp for sp in us if sp not in assign]
-        if not ustmp:
-            out = perm(fcrn, icrn, fs, itmp, permcheck, state)
-            if out[0]:
-                return out
-            else:
-                state = out[1]
-                continue
+        ulist = [sp for sp in unassigned if sp not in assign]
+        log.debug(f'{ulist=}')
+        if not ulist:
+            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
+            if out:
+                yield parti
+            continue
 
-        n = 0
+        # A mini table. 
+        # For every unknown implementation reaction make a list:
+        #   - for each unassigend species store #ur - #up
         a = []
         for i in unknown:
-            a.append([])
-            for j in ustmp:
-                a[n].append(sicrntmp[i][0][j]-sicrntmp[i][1][j])
+            irxn = sicrn[i]
+            log.debug(irxn)
+            # A list of #ur - #up
+            a.append([irxn[0][u]-irxn[1][u] for u in ulist] + [0])
+        log.debug(f'{a=}')
 
-            a[n].append(0)
-            n += 1
-
-        for isp in ustmp:
-            itmp[isp] = Counter()
+        # prepare for adding species to the counter ...
+        for u in ulist:
+            parti[u] = Counter()
+        log.debug(f'{parti=}')
 
         check = True
         for fsp in fs:
-            n = 0
-            for j in unknown:
-                a[n].pop()
-                a[n].append(sicrntmp[j][0][fsp]-sicrntmp[j][1][fsp])
-                n += 1
+            log.warning(f'{fsp=}')
+            for e, i in enumerate(unknown):
+                irxn = sicrn[i]
+                # A list of #fsr - #fsp
+                a[e][-1] = irxn[0][fsp]-irxn[1][fsp]
+            log.debug(f'{a=}')
 
+            # Alright, this can find one, but only one solution... 
             s = solve(a)
+            log.debug(f'{s=}')
             if s == []:
                 check = False
                 break
             else:
-                for j in range(len(ustmp)):
-                    itmp[ustmp[j]][fsp] = s[j]
-
+                for j, u in enumerate(ulist):
+                    parti[u][fsp] = s[j]
         if check:
-            for isp in ustmp:
-                itmp[isp] = itmp[isp] + Counter()
-            out = perm(fcrn, icrn, fs, itmp, permcheck, state)
-            if out[0]:
-                return out
-            else:
-                state = out[1]
-                continue
-
-    return [False, state]
+            for isp in ulist:
+                parti[isp] = parti[isp] + Counter()
+            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
+            if out:
+                yield parti
+    return
 
 def atomic_condition(inter, fs):
     """ Tests an interpretation for the atomic condition.
@@ -716,94 +812,109 @@ def atomic_condition(inter, fs):
     """
     return all(any(set(f) == set(v.elements()) for v in inter.values()) for f in fs)
 
-def search_row(fcrn, icrn, fs, 
-               unknown, intrp, 
-               depth, permcheck, state, nontriv = False):
-    """ Row search: every implementation reaction must interpret to a formal reaction 
-        (or be trivial).
-    """
-    #print(f'searching row at {depth=}')
-    #print(f'{intrp=}')
-    #print(f'{state=}')
+def search_row(fcrn, icrn, fs, intrp, unknown, depth, permcheck):
+    """ Find full interpretations matching every irxn to one frxn or trxn.
 
-    intr, max_depth = state[0:2]
+    This "row search" finds all valid combinations of 
+        implementation reaction -> formal reaction or 
+        implementation reaction -> trivial reaction.
+    Typically this function is called after search_column, which means we
+    already have delimiting and atomic condition satisfied. However, the
+    delimiting condition may still break when an additional implementation
+    reaction is introduced. 
+
+    """
+    log.info(f'Searching row at {depth=}'.center(80-(2*depth), '~'))
+    log.debug(f'Partial interpretation {inter_list(intrp)=}')
+
     sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
     if not checkT(T):
-        log.debug(f'reset delim with {intrp=}')
-        raise SpeciesAssignmentError('delimiting')
+        log.debug(f'Delimiting condition not satisfied.')
+        raise SpeciesAssignmentError('Delimiting condition not satisfied.')
 
     if unknown is None:
-        # It is a row indices, where unassigned species can be found ...
+        # The row indices where unassigned species can be found.
         unknown = [i for i, sirxn in enumerate(sicrn) if \
                 len(set(sirxn[0]) - fs) or len(set(sirxn[1]) - fs)]
 
-    # Are we done? Check the permissive condition ...
     if unknown == []:
+        #assert atomic_condition(intrp, fs)
         if not atomic_condition(intrp, fs):
-            log.debug(f'reset atomic with {intrp=}')
-            raise SpeciesAssignmentError('atomic')
-        out = perm(fcrn, icrn, fs, intrp, permcheck, state)
-        if out[0]:
-            yield out[1]
+            log.debug(f'Atomic condition not satisfied.')
+            raise SpeciesAssignmentError('Atomic condition not satisfied.')
+        correct, info = check_permissive(fcrn, icrn, fs, intrp, permcheck)
+        if correct:
+            log.debug(f'Permissive condition satisfied ({info=}).')
+            yield intrp
             return
-        else:
-            log.debug(f'reset permissive with {intrp=}')
-            raise SpeciesAssignmentError('permissive')
+        log.debug(f'Permissive condition not satisfied ({info=}).')
+        raise SpeciesAssignmentError('Permissive condition not satisfied.')
     else:
         # Start with the unknown row with the minimal number of True's (excluding trivial reactions)
         unknown = sorted(unknown, key = lambda x: T[x][:-1].count(True))
         assert True in T[unknown[0]]
 
-    if max_depth >= 0 and depth > max_depth:
-        intr = intrp.copy()
-        max_depth = depth
-
-    found = False
-
     # all unsearched rows could be trivial -- try it!
-    if all(T[x][-1] for x in unknown) and not nontriv:  
-        # This has its own permissive checker ...
-        out = solve_trivial(fcrn, icrn, fs, intrp, permcheck,
-                            [intr, max_depth] + state[2:])
-        if out[0]:
-            yield out[1]
-            found = True
-        nontriv = True
-
+    #if all(T[x][-1] for x in unknown) and #if not any(T[k][:-1]):# and T[k][-1] is True:  
+    #    # This has its own permissive checker ...
+    #    for bisim in search_trivial(fcrn, icrn, fs, intrp):
+    #        log.debug(f'Permissive condition satisfied ({inter_list(bisim)=}).')
+    #        yield bisim
+    #    #check_trivial = False
+    
     for k in unknown:
-        if not any(T[k][:-1]):
-            # This can only be a trivial reaction ...
-            continue
+        irxn = sicrn[k] 
         unext = [u for u in unknown if u != k]
 
-        # That is probably some form of optimization ...
-        if T[k][-1] is True:  
-            # This can be a trivial reaction, leave it be????
-            try:
-                inext = intrp.copy()
-                for isuccess in search_row(fcrn, icrn, fs, 
-                                           unext, inext, 
-                                           depth, permcheck, 
-                                           [intr, max_depth] + state[2:], 
-                                           nontriv):
-                    inext.update(isuccess.items())
-                    yield inext
-            except SpeciesAssignmentError:
-                continue
+        # It can only be a trivial reaction.
+        if not any(T[k][:-1]):# and T[k][-1] is True:  
+            log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => trivial')
+            fl = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k in fs})
+            fr = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k in fs})
+            ul = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k not in fs})
+            ur = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k not in fs})
+
+            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+            tmpl = enumL(len(ul), list(fr.elements()), vl)
+            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+            tmpr = enumL(len(ur), list(fl.elements()), vr)
+
+            log.warning(f'{ul=} {fr=}')
+            log.warning(f'{ur=} {fl=}')
+
+            for i, j in product(tmpl, tmpr):
+                intrpleft = dict(zip(kl, i))
+                intrpright = dict(zip(kr, j))
+                for key in set(intrpleft) & set(intrpright):
+                    if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
+                            for fsp in fs]):
+                        # Incompatible dictionaries!
+                        break
+                else:
+                    inext = intrp.copy()
+                    inext.update({k: Counter(v) for k, v in intrpleft.items()})
+                    inext.update({k: Counter(v) for k, v in intrpright.items()})
+                    try:
+                        for isuccess in search_row(fcrn, icrn, fs, inext, unext, depth + 1,
+                                                   permcheck):
+                            yield isuccess
+                    except SpeciesAssignmentError:
+                        continue
 
         # This part cannot solve trivial reactions ... 
-        for c in range(len(fcrn)):
+        for c, frxn in enumerate(fcrn):
             if not T[k][c]:
                 continue
+            log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => {pretty_rxn(rl(frxn))}')
             # left 
-            ul = sicrn[k][0] - fcrn[c][0]
-            sl = fcrn[c][0] - sicrn[k][0]
+            ul = irxn[0] - frxn[0]
+            sl = frxn[0] - irxn[0]
             [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
             tmpl = enumL(len(ul), list(sl.elements()), vl)
             # right
-            ur = sicrn[k][1] - fcrn[c][1]
-            sr = fcrn[c][1] - sicrn[k][1]
+            ur = irxn[1] - frxn[1]
+            sr = frxn[1] - irxn[1]
             [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
             tmpr = enumL(len(ur), list(sr.elements()), vr)
 
@@ -821,68 +932,66 @@ def search_row(fcrn, icrn, fs,
                     inext.update({k: Counter(v) for k, v in intrpright.items()})
                     try:
                         for isuccess in search_row(fcrn, icrn, fs, 
-                                                   unext, inext, 
-                                                   depth + 1, permcheck,
-                                                   [intr, max_depth] + state[2:]):
-                            inext.update(isuccess.items())
-                            yield inext
+                                                   inext, unext,
+                                                   depth + 1, permcheck):
+                            yield isuccess
                     except SpeciesAssignmentError:
                         continue
-        break # TODO: I don't understand why we want this, but it makes everyting soo fast!
+
     return
 
-def search_column(fcrn, icrn, fs = None, inter = None, unknown = None, depth = 0):
-    """ Find an interpretation seed that passes the permissive condition.
+def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0):
+    """ Find all interpretation seeds matching every frxn to one irxn.
 
-    TODO: need to check if it finds all of these seeds, or just some....
+    This "column search" finds all valid combinations of formal reaction to
+    implementation reaction. For example, if there is one formal reaction and
+    three compatible implementation reactions, then it will return three
+    interpretations that have exactly one reaction interpreted.
 
-    Note: this does not search ever combination of how to seed an interpretatation,
-    and it also does not return complete interpretations.... i wonder what this
-    is doing ...
-    
-    search depth is not implemented.
     """
-    #print(f'\nsearching {depth=}')
+    log.info(f'Searching column at {depth=}'.center(40-(2*depth), '*'))
+    log.debug(f'Partial interpretation {inter_list(intrp)=}')
+
     if fs is None:
         fs = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
-    if inter is None:
-        inter = {}
-    if unknown is None:
-        unknown = [i for i in range(len(fcrn))]
+    if intrp is None:
+        intrp = {}
 
-    # A quick check if the delimiting condition is still satisfied.
-    sicrn = subst(icrn, inter)
+    sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
     if not checkT(T):
-        #print(f'reset with {inter=}')
-        raise SpeciesAssignmentError
+        #log.debug(f'Delimiting condition not satisfied with {inter_list(intrp)=}')
+        raise SpeciesAssignmentError('Delimiting condition not satisfied.')
 
-    # A quick check if we have found a successfull partial interpretation?
-    if len(unknown) == 0: 
-        # NOTE: Do not make sure atomic conditition is satisfied at this point.
-        #if not atomic_condition(inter, fs):
-        #    raise SpeciesAssignmentError
-        #print(f'returning {inter=} at depth {depth=}')
-        yield inter
-        return
+    if unknown is None:
+        unknown = [i for i in range(len(fcrn))]
 
     # Start with the unknown column with the minimal number of True's.
     # I.e. the implementation rxn that can be assigned to the least formal reactions.
     unknown = sorted(unknown, key = lambda x: sum(T[j][x] for j in range(len(sicrn))))
 
+    if len(unknown) == 0: 
+        #if not atomic_condition(intrp, fs):
+        #    log.debug(f'Atomic condition not satisfied.')
+        #    raise SpeciesAssignmentError('Atomic condition not satisfied.')
+        yield intrp
+        return
+
     for c in unknown:
+        frxn = fcrn[c]
         unext = [u for u in unknown if u != c]
-        for k in range(len(sicrn)):
+        for k, irxn in enumerate(sicrn):
             if not T[k][c]:
                 continue
+            log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => {pretty_rxn(rl(frxn))}')
             # left 
-            ul = sicrn[k][0] - fcrn[c][0]
-            sl = fcrn[c][0] - sicrn[k][0]
+            ul = irxn[0] - frxn[0]
+            sl = frxn[0] - irxn[0]
             [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
             tmpl = enumL(len(ul), list(sl.elements()), vl)
             # right
-            ur = sicrn[k][1] - fcrn[c][1]
-            sr = fcrn[c][1] - sicrn[k][1]
+            ur = irxn[1] - frxn[1]
+            sr = frxn[1] - irxn[1]
             [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
             tmpr = enumL(len(ur), list(sr.elements()), vr)
 
@@ -895,21 +1004,19 @@ def search_column(fcrn, icrn, fs = None, inter = None, unknown = None, depth = 0
                         # Incompatible dictionaries!
                         break
                 else:
-                    inext = inter.copy()
+                    inext = intrp.copy()
                     inext.update({k: Counter(v) for k, v in intrpleft.items()})
                     inext.update({k: Counter(v) for k, v in intrpright.items()})
                     try:
                         for isuccess in search_column(fcrn, icrn, fs, inext, unext, depth + 1):
-                            inext.update(isuccess.items())
-                            yield inext
+                            yield isuccess
                     except SpeciesAssignmentError:
                         continue
-        break # TODO: let's break here as well, this is so weird ...
     return
 
-def find_bisimulation(fcrn, icrn, fs, intrp, depth, permcheck, state):
+def find_bisimulation(fcrn, icrn, fs, inter, depth, permcheck):
     """
-    fcrn, icrn, fs, unknown and intrp, permcheck remain constant, i think.
+    fcrn, icrn, fs, unknown and inter, permcheck remain constant, i think.
 
     Assumes that icrn and fcrn have diffferent species names, unless they are 
     the same specis!
@@ -919,35 +1026,26 @@ def find_bisimulation(fcrn, icrn, fs, intrp, depth, permcheck, state):
     The inner icrn/fcrn/inter format layer
 
     """
-
     # push the data structure further in ...
     fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
     icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-    intrp = inter_counter(intrp)
+    intrp = inter_counter(inter)
 
-    found = False # Changes to True if you found something ... but what?
-    for inter in search_column(fcrn, icrn, fs, intrp):
-
-        # Rollback to original interpretation if you reach the max_depth,
-        # I assume this is a hack to do some sort of depth/breadth first search.
-        intr, max_depth = state[0:2]
-        if max_depth >= 0 and depth > max_depth:
-            intr = intrp.copy()
-            max_depth = depth
+    log.info(f'Searching for bisimulation')
+    found = False
+    for parti in search_column(fcrn, icrn, fs, intrp):
         try:
-            for bisim in search_row(fcrn, icrn, fs, None, inter, depth, permcheck, 
-                                     [intr, max_depth] + state[2:]):
+            for bisim in search_row(fcrn, icrn, fs, parti, None, depth, permcheck):
                 if found is False:
                     yield True
                     found = True
-                inter.update(bisim.items())
-                yield inter_list(inter)
+                yield inter_list(bisim)
         except SpeciesAssignmentError:
             continue
 
     if not found:
         yield False
-        yield [intrp, 0] + state[2:]
+        yield None
 
 def is_modular(bisim, icrn, common_is, common_fs):
     """ Check if a bisimulation satisfies the modularity condition.
@@ -1114,10 +1212,10 @@ def crn_bisimulations(fcrn, icrn,
     icrn = new
     log.debug('Internal implementation CRN:')
     [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
-    intrp = {deformalize(k, formals): v for k, v in interpretation.items()
+    inter = {deformalize(k, formals): v for k, v in interpretation.items()
                                                 } if interpretation else {}
     log.debug('Internal interpretation:')
-    [log.debug('  {}: {}'.format(k,v)) for (k, v) in intrp.items()]
+    [log.debug('  {}: {}'.format(k,v)) for (k, v) in inter.items()]
 
     if permissive_depth:
         permissive = [permissive, permissive_depth]
@@ -1125,42 +1223,41 @@ def crn_bisimulations(fcrn, icrn,
 
     out = find_bisimulation(fcrn, icrn, 
                             set(formals), 
-                            intrp, 
+                            inter, 
                             0, 
-                            permissive,
-                            [{}, 0, [[Counter(),Counter()],Counter()]])
+                            permissive)
 
     correct = next(out)
     if correct:
-        for intrpout in out:
-            yield formalize(intrpout)
+        for bisim in out:
+            yield formalize(bisim)
     else:
-        wintr, max_depth, permissive_failure = next(out)
-        wintr = formalize(wintr)
-        #max_depth: if > 0, search depth in Qing's algorithm at which intrp was found
-        #         if -1, permissive condition was proven false for intrp
-        #         if -2, permissive condition could not be proven true for intrp
-        #         with specified permissive_depth
-        #permissive_failure: if max_depth < 0, permissive_failure[0] is formal
-        #    reaction for which permissive condition failed if so and method was
-        #    not 'graphsearch', permissive_failure[1] is implementation state
-        #    which could not implement the reaction 
-        if max_depth >= 0:
-            log.info("Delimiting condition cannot be satisfied:")
-            if max_depth >= len(fcrn):
-                log.info("An implementation reaction cannot be found in the formal CRN.")
-            else:
-                log.info("A formal reaction cannot be found in the implementation CRN.")
-            log.info(f"Maximum search depth reached: {max_depth}")
-            log.debug(f"Returning wrong interpretation:\n {wintr}")
-        else:
-            [[R, P], istate] = permissive_failure
-            log.info("Permissive condition cannot be satisfied:")
-            log.info("The formal reaction: {}".format(
-                '{} -> {}'.format(' + '.join(R), ' + '.join(P))))
-            log.info(f"is not possible from implementation state: {istate}")
-            if max_depth == -2:
-                log.info(f"The maximum trivial reaction chain length {permissive_depth} has been reached.")
+        #wintr, max_depth, permissive_failure = next(out)
+        #wintr = formalize(wintr)
+        ##max_depth: if > 0, search depth in Qing's algorithm at which intrp was found
+        ##         if -1, permissive condition was proven false for intrp
+        ##         if -2, permissive condition could not be proven true for intrp
+        ##         with specified permissive_depth
+        ##permissive_failure: if max_depth < 0, permissive_failure[0] is formal
+        ##    reaction for which permissive condition failed if so and method was
+        ##    not 'graphsearch', permissive_failure[1] is implementation state
+        ##    which could not implement the reaction 
+        #if max_depth >= 0:
+        #    log.info("Delimiting condition cannot be satisfied:")
+        #    if max_depth >= len(fcrn):
+        #        log.info("An implementation reaction cannot be found in the formal CRN.")
+        #    else:
+        #        log.info("A formal reaction cannot be found in the implementation CRN.")
+        #    log.info(f"Maximum search depth reached: {max_depth}")
+        #    log.debug(f"Returning wrong interpretation:\n {wintr}")
+        #else:
+        #    [[R, P], istate] = permissive_failure
+        #    log.info("Permissive condition cannot be satisfied:")
+        #    log.info("The formal reaction: {}".format(
+        #        '{} -> {}'.format(' + '.join(R), ' + '.join(P))))
+        #    log.info(f"is not possible from implementation state: {istate}")
+        #    if max_depth == -2:
+        #        log.info(f"The maximum trivial reaction chain length {permissive_depth} has been reached.")
         yield None
 
 def modular_crn_bisimulation_test(fcrns, icrns, formals, 
