@@ -19,11 +19,10 @@ setup(
     license = 'MIT',
     classifiers = [
         'Development Status :: 4 - Beta',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Intended Audience :: Science/Research',
         ],
-    python_requires = '>=3.7',
+    python_requires = '>=3.8',
     install_requires = ['pyparsing'],
     packages = ['crnverifier'],
     test_suite = 'tests',
