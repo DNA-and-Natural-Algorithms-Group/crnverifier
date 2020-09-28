@@ -26,7 +26,6 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Individual test classes
                                           search_column, 
                                           search_row, 
-                                          search_trivial,
                                           is_modular, 
                                           # Just used
                                           inter_counter,
@@ -34,7 +33,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           subst) 
 
 SKIP_SLOW = True
-SKIP_DEBUG = True
+SKIP_DEBUG = False
 
 def rl(rxn):
     return [list(part.elements()) for part in rxn]
@@ -120,7 +119,7 @@ class HelperTests(unittest.TestCase):
       - subsetsL
       - enumL
       - same_reaction
-      - updateT (TODO)
+      - updateT
       - checkT
     """
     def test_formal_states_exact(self):
@@ -388,8 +387,6 @@ class HelperTests(unittest.TestCase):
         assert updateT(fcrn, icrn, fs, counter = False) == table
 
     def test_update_table_large(self):
-        # TODO: this is an example from a run, it shows that those tables may
-        # have many duplicate entries! Does that matter?
         fcrn = """ A + b -> c
                    b -> c
                    c -> b
@@ -545,7 +542,7 @@ class TestColumnSearch(unittest.TestCase):
                 print(e, inter_list(b))
         assert len(cols) == 28 
 
-#@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestRowSearch(unittest.TestCase):
     def test_search_row_01(self):
         fcrn = "A -> B + C"
@@ -558,104 +555,93 @@ class TestRowSearch(unittest.TestCase):
         icrn, _ = parse_crn(icrn)
         fcrn = [rc(rxn) for rxn in fcrn]
         icrn = [rc(rxn) for rxn in icrn]
-        #i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
-        i4 = {'x2': ['A'], 'x3': [], 'x4': ['B', 'C']}  #2
-        #i5 = {'x4': ['A'], 'x7': ['B', 'C'], 'x8': []} 
-        #i8 = {'x4': ['A'], 'x7': [], 'x8': ['B', 'C']} 
-        i9 = {'x1': ['A'], 'x2': ['B', 'C']}            #36
-
-        i6 = {'x4': ['A'], 'x7': ['B'], 'x8': ['C']}
-        i6r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
-
-        i7 = {'x4': ['A'], 'x7': ['C'], 'x8': ['B']}
-        i7r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
+        i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i1)))
+        assert len(rows) == 0
 
         i2 = {'x2': ['A'], 'x3': ['B'], 'x4': ['C']}
         i2r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': ['C'], 'x8': []}
         i2r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': [], 'x8': ['C']}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i2)))
+        if len(rows) != 2:
+            print('FAILURE:')
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+        assert len(rows) == 2
+        assert inter_counter(i2r01) in rows
+        assert inter_counter(i2r02) in rows
 
         i3 = {'x2': ['A'], 'x3': ['C'], 'x4': ['B']}
         i3r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': [], 'x8': ['B']}
         i3r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': ['B'], 'x8': []}
-
-
         rows = list(search_row(fcrn, icrn, fs, inter_counter(i3)))
+        if len(rows) != 2:
+            print('FAILURE:')
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+        assert len(rows) == 2
+        assert inter_counter(i3r01) in rows
+        assert inter_counter(i3r02) in rows
+
+        i4 = {'x2': ['A'], 'x3': [], 'x4': ['B', 'C']}  
+        i4r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
+        i4r02 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i4)))
+        if len(rows) != 2:
+            print('FAILURE:')
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+        assert len(rows) == 2
+        assert inter_counter(i4r01) in rows
+        assert inter_counter(i4r02) in rows
+
+        i5 = {'x4': ['A'], 'x7': ['B', 'C'], 'x8': []} 
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i5)))
+        assert len(rows) == 0
+
+        i6 = {'x4': ['A'], 'x7': ['B'], 'x8': ['C']}
+        i6r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i6)))
         if len(rows) != 1:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
                 print(e, {k: v for k, v in sorted(inter_list(b).items())})
-
-        assert False
-
-
-        #cols = list(search_column(fcrn, icrn, fs))
-        #if len(cols) != 9:
-        #    print('FAILURE:')
-        #    for e, b in enumerate(cols, 1):
-        #        print(e, inter_list(b))
-        #assert len(cols) == 9
-        #assert inter_counter(i1) in cols
-        #assert inter_counter(i2) in cols
-        #assert inter_counter(i3) in cols
-        #assert inter_counter(i4) in cols
-        #assert inter_counter(i5) in cols
-        #assert inter_counter(i6) in cols
-        #assert inter_counter(i7) in cols
-        #assert inter_counter(i8) in cols
-        #assert inter_counter(i9) in cols
-
-    def dont_test_search_column_02(self):
-        fcrn = """A + B -> C + D
-                  A + C -> B + D"""
-        icrn = """x1 -> x2
-                  x3 + x4 <=> x5
-                  x2 -> x6 + x8
-                  x5 -> x7
-                  x3 <=> x6
-                  x9 <=> x10
-                  x10 + x4 <=> x1 
-                  x7 -> x9 + x8"""
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
-        cols = list(search_column(fcrn, icrn, fs))
-
-        # SB: I didn't actually check those, but you should if something goes wrong!
-        i01 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
-        i02 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': []}
-        i03 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D']}
-        i04 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
-        i05 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x7': ['A', 'C'], 'x9': ['B']}
-        i06 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
-        i07 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x7': ['A', 'C'], 'x9': ['B', 'D']}
-        i08 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
-        i09 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': []}
-        i10 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D']}
-        i11 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
-        i12 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x2': ['A', 'C'], 'x6': ['B']}
-        i13 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
-        i14 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x2': ['A', 'C'], 'x6': ['B', 'D']}
-        i15 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
-        i16 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D']}
-        i17 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': []}
-        i18 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
-        i19 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x7': ['A', 'B'], 'x9': ['C', 'D']}
-        i20 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
-        i21 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x7': ['A', 'B'], 'x9': ['C']}
-        i22 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
-        i23 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D']}
-        i24 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': []}
-        i25 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
-        i26 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x2': ['A', 'B'], 'x6': ['C', 'D']}
-        i27 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
-        i28 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x2': ['A', 'B'], 'x6': ['C']}
-
-        if len(cols) != 28:
+        assert len(rows) == 1
+        assert rows[0] == inter_counter(i6r01)
+ 
+        i7 = {'x4': ['A'], 'x7': ['C'], 'x8': ['B']}
+        i7r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i7)))
+        if len(rows) != 1:
             print('FAILURE:')
-            for e, b in enumerate(cols, 1):
-                print(e, inter_list(b))
-        assert len(cols) == 28 
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+        assert len(rows) == 1
+        assert rows[0] == inter_counter(i7r01)
+
+        i8 = {'x4': ['A'], 'x7': [], 'x8': ['B', 'C']} 
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i8)))
+        assert len(rows) == 0
+
+        i9 = {'x1': ['A'], 'x2': ['B', 'C']} 
+        i9r01 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': [], 'x8': ['B']}
+        i9r02 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': ['B'], 'x8': []}
+        i9r03 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': ['C'], 'x8': []}
+        i9r04 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': [], 'x8': ['C']}
+        i9r05 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
+        i9r06 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i9)))
+        if len(rows) != 6:
+            print('FAILURE:')
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+        assert len(rows) == 6
+        assert inter_counter(i9r01) in rows
+        assert inter_counter(i9r02) in rows
+        assert inter_counter(i9r03) in rows
+        assert inter_counter(i9r04) in rows
+        assert inter_counter(i9r05) in rows
+        assert inter_counter(i9r06) in rows
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestSearchSpace(unittest.TestCase):
@@ -682,35 +668,36 @@ class TestSearchSpace(unittest.TestCase):
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
 
-        i01 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['D'], 'f': ['C']}
-        i02 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['C', 'D'], 'f': []}
-        i03 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': [], 'f': ['C', 'D']}
-        i04 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['C'], 'f': ['D']}
-        i05 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['D'], 'f': ['C']}
-        i06 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['C'], 'f': ['D']}
-        i07 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': [], 'f': ['D', 'C']}
-        i08 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['D', 'C'], 'f': []}
-        i09 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['D'], 'f': ['C']}
-        i10 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['C', 'D'], 'f': []}
-        i11 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': [], 'f': ['C', 'D']}
-        i12 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['C'], 'f': ['D']}
-        i13 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['D'], 'f': ['C']}
-        i14 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['C'], 'f': ['D']}
-        i15 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': [], 'f': ['D', 'C']}
-        i16 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['D', 'C'], 'f': []}
-        i17 = {'a': ['A'], 'b': ['B'], 'c': [], 'd': ['C', 'D'], 'e': ['D'], 'f': ['C']} 
-        i18 = {'a': ['A'], 'b': ['B'], 'c': [], 'd': ['C', 'D'], 'e': ['C'], 'f': ['D']}
-        i19 = {'a': ['A'], 'b': ['B'], 'c': ['C', 'D'], 'd': [], 'e': ['D'], 'f': ['C']}
-        i20 = {'a': ['A'], 'b': ['B'], 'c': ['C', 'D'], 'd': [], 'e': ['C'], 'f': ['D']}
-        i21 = {'a': ['B'], 'b': ['A'], 'c': [], 'd': ['C', 'D'], 'e': ['D'], 'f': ['C']} 
-        i22 = {'a': ['B'], 'b': ['A'], 'c': [], 'd': ['C', 'D'], 'e': ['C'], 'f': ['D']}
-        i23 = {'a': ['B'], 'b': ['A'], 'c': ['C', 'D'], 'd': [], 'e': ['D'], 'f': ['C']}
-        i24 = {'a': ['B'], 'b': ['A'], 'c': ['C', 'D'], 'd': [], 'e': ['C'], 'f': ['D']}
-
+        i01 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['C'], 'f': ['D']}
+        i02 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['D'], 'f': ['C']}
+        i03 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': [], 'f': ['C', 'D']}
+        i04 = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'd': ['D'], 'e': ['C', 'D'], 'f': []}
+        i05 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['C'], 'f': ['D']}
+        i06 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['D'], 'f': ['C']}
+        i07 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': ['C', 'D'], 'f': []}
+        i08 = {'a': ['B'], 'b': ['A'], 'c': ['D'], 'd': ['C'], 'e': [], 'f': ['C', 'D']}
+        i09 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['C'], 'f': ['D']}
+        i10 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['D'], 'f': ['C']}
+        i11 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': [], 'f': ['C', 'D']}
+        i12 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['C', 'D'], 'f': []}
+        i13 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['C'], 'f': ['D']}
+        i14 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['D'], 'f': ['C']}
+        i15 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': ['C', 'D'], 'f': []}
+        i16 = {'a': ['A'], 'b': ['B'], 'c': ['D'], 'd': ['C'], 'e': [], 'f': ['C', 'D']}
+        i17 = {'a': ['B'], 'b': ['A'], 'c': ['C', 'D'], 'd': [], 'e': ['C'], 'f': ['D']}
+        i18 = {'a': ['B'], 'b': ['A'], 'c': ['C', 'D'], 'd': [], 'e': ['D'], 'f': ['C']}
+        i19 = {'a': ['B'], 'b': ['A'], 'c': [], 'd': ['C', 'D'], 'e': ['C'], 'f': ['D']}
+        i20 = {'a': ['B'], 'b': ['A'], 'c': [], 'd': ['C', 'D'], 'e': ['D'], 'f': ['C']}
+        i21 = {'a': ['A'], 'b': ['B'], 'c': ['C', 'D'], 'd': [], 'e': ['C'], 'f': ['D']}
+        i22 = {'a': ['A'], 'b': ['B'], 'c': ['C', 'D'], 'd': [], 'e': ['D'], 'f': ['C']}
+        i23 = {'a': ['A'], 'b': ['B'], 'c': [], 'd': ['C', 'D'], 'e': ['C'], 'f': ['D']}
+        i24 = {'a': ['A'], 'b': ['B'], 'c': [], 'd': ['C', 'D'], 'e': ['D'], 'f': ['C']}
         bisims = list(crn_bisimulations(fcrn, icrn))
-        #for e, b in enumerate(bisims):
-        #    print(e, b, b in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10,
-        #                      i11, i12, i13, i14, i15, i16])
+        if len(bisims) != 24:
+            print()
+            for e, b in enumerate(bisims, 1):
+                print(e, b, b in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10, 
+                                  i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21, i22, i23, i24])
         assert len(bisims) == 24
         assert i01 in bisims
         assert i02 in bisims
@@ -775,135 +762,40 @@ class TestSearchSpace(unittest.TestCase):
         #    print(e, {k:v for k, v in sorted(b.items())})
         assert len(bisims) == 16
 
-@unittest.skipIf(SKIP_DEBUG, "not sure if I keep this!")
-class TestTrivialSearch(unittest.TestCase):
-    def test_search_trivial_01(self):
-        fcrn = "A + B -> C + D"
-        icrn = "a + b -> c + d; d + c -> e + f"
+    def test_order_formals_bug(self):
+        fcrn = "A + B -> C"
+        icrn = "B_1_ + i7 -> i684 + i17; A <=> i7; i17 -> C_1_ + i29"
+
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
 
-        partial = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D']}
-        bisims = list(search_trivial(fcrn, icrn, fs, inter_counter(partial)))
-
-        i1 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['C'], 'f': ['D']}
-        i2 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['D'], 'f': ['C']}
-        i3 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': ['D', 'C'], 'f': []}
-        i4 = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'd': ['D'], 'e': [], 'f': ['D', 'C']}
-        assert len(bisims) == 4
-        assert inter_counter(i1) in bisims
-        assert inter_counter(i2) in bisims
-        assert inter_counter(i3) in bisims
-        assert inter_counter(i4) in bisims
-
-    def test_search_trivial_02(self):
-        fcrn = "A + B -> A + B"
-        icrn = "a + b -> c + d"
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-
-        #TODO: better example! fails permissive 
-        partial = {'a': ['A'],'d': ['B']}
-
-        bisims = list(search_trivial(fcrn, icrn, fs, inter_counter(partial)))
-
-        assert len(bisims) == 0
-
-    def test_permissive(self):
-        fcrn = "A + B -> A + B"
-        icrn = "a + b -> c + d"
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        intrp={'a': Counter({'A': 1}), 
-               'd': Counter({'B': 1}),
-               'b': Counter({'B': 1}), 
-               'c': Counter({'A': 1})}
+        i01 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
+        i02 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
+        i03 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
+        i04 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
+        i05 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
+        i06 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
+        i07 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
+        i08 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
+        i09 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
+        i10 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        #for e, r in enumerate(bisims):
+        #    print(f'{e:2d}: {sorted(i.items())}')
+        assert len(bisims) == 10
+        assert i01 in bisims
+        assert i02 in bisims
+        assert i03 in bisims
+        assert i04 in bisims
+        assert i05 in bisims
+        assert i06 in bisims
+        assert i07 in bisims
+        assert i08 in bisims
+        assert i09 in bisims
+        assert i10 in bisims
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
-class BisimulationTests(unittest.TestCase):
-    def dont_test_QingDong_thesis(self):
-        # An example where the choice of the permissive checker matters ...
-        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
-        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
-
-        inter_01 = {'i778': ['Y'],
-                    'i575': ['X'],
-                    'i599': ['C'],
-                    'i2232': ['A'],
-                    'i73': ['B']}
-
-        inter_02 = {'i842': ['Y', 'X', 'A'],
-                    'i394': ['X', 'Y', 'X'],
-                    'i119': ['X', 'B', 'A'],
-                    'i2300': ['A', 'C'],
-                    'i778': ['Y'],
-                    'i575': ['X'],
-                    'i599': ['C'],
-                    'i2232': ['A'],
-                    'i73': ['B']}
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_01,
-                                     permissive = 'graphsearch')
-        self.assertTrue(v)
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_01, 
-                                     permissive = 'reactionsearch')
-        self.assertTrue(v)
-
-        if not SKIP_SLOW:
-            # TODO: How long approximately?
-            v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                         interpretation = inter_01, 
-                                         permissive = 'loopsearch')
-            self.assertTrue(v)
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs,
-                                     interpretation = inter_02, 
-                                     permissive = 'graphsearch')
-        self.assertTrue(v)
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_02, 
-                                     permissive = 'reactionsearch')
-        self.assertTrue(v)
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs,
-                                     interpretation = inter_02, 
-                                     permissive = 'loopsearch')
-        self.assertTrue(v)
-
-        if not SKIP_SLOW:
-            # These tests complete in less than 10 minutes
-            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
-            self.assertTrue(v)
-
-            v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'reactionsearch')
-            self.assertTrue(v)
-
-            # These might not even finish in an overnight run ... who knows?
-            #v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
-            #self.assertTrue(v)
-
-    @unittest.skipIf(SKIP_SLOW, "skipping slow tests")
-    def test_qian_roessler_bisimulation(self):
-        # TODO: How long approximately?
-        (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
-        (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
-
-        partial = {sp: [sp] for sp in fs}
-        backup = {sp: [sp] for sp in fs}
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial)
-        self.assertTrue(v)
-        self.assertDictEqual(partial, backup)
-
+class FastBisimulationTests(unittest.TestCase):
     def test_example_01(self):
         # A sample test to aggree on a new interface for bisimulation.
         fcrn = "A->B"
@@ -1063,7 +955,7 @@ class BisimulationTests(unittest.TestCase):
                                      permissive = 'loopsearch')
         self.assertFalse(v)
 
-    def dont_test_example_04(self):
+    def test_example_04(self):
         # Two valid interpretations
         fcrn = "B + B -> B"
         icrn = "B <=> x1; B + x1 -> x2 + x3; x2 -> B + x4"
@@ -1149,49 +1041,34 @@ class BisimulationTests(unittest.TestCase):
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, interpretation=inter)
         assert v is False
 
-    def test_order_formals_bug(self):
-        fcrn = "A + B -> C"
-        icrn = "B_1_ + i7 -> i684 + i17; A <=> i7; i17 -> C_1_ + i29"
-
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-
-        print(fs)
-        i01 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
-        i02 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
-        i03 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
-        i04 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
-        i05 = {'A': ['A'], 'i7': ['A'], 'B_1_': ['B'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
-        i06 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': [],    'C_1_': ['C']   }
-        i07 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['C'],      'i29': ['C'], 'C_1_': []      }
-        i08 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': [],    'C_1_': ['C']   }
-        i09 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': [],    'i17': ['A', 'B'], 'i29': ['C'], 'C_1_': []      }
-        i10 = {'A': ['B'], 'i7': ['B'], 'B_1_': ['A'], 'i684': ['C'], 'i17': [],         'i29': [],    'C_1_': []      }
-
-
-        inters = list(crn_bisimulations(fcrn, icrn))[1:]
-        for r in inters:
-            for e, i in enumerate([i01, i02, i03, i04, i05, i06, i07, i08, i09, i10], 1):
-                if r == i:
-                    print(f'{e:2d}: {sorted(i.items())}')
-                    break
-            else:
-                # wrong interpretation?
-                assert False
-
-        assert all(i in inters for i in [i01, i02, i03, i04, i05, i06, i07, i08, i09, i10])
-
-        #fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        #icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        #inters = list(search_column(fcrn, icrn))[1:]
-        #for r in inters:
-        #    r = inter_list(r)
-        #    print(r)
-
+    def test_QingDong_crn6_i02(self):
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter_02 = {'i842': ['Y', 'X', 'A'],
+                    'i394': ['X', 'Y', 'X'],
+                    'i119': ['X', 'B', 'A'],
+                    'i2300': ['A', 'C'],
+                    'i778': ['Y'],
+                    'i575': ['X'],
+                    'i599': ['C'],
+                    'i2232': ['A'],
+                    'i73': ['B']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs,
+                                     interpretation = inter_02, 
+                                     permissive = 'graphsearch')
+        self.assertTrue(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
+                                     interpretation = inter_02, 
+                                     permissive = 'reactionsearch')
+        self.assertTrue(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs,
+                                     interpretation = inter_02, 
+                                     permissive = 'loopsearch')
+        self.assertTrue(v)
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ModularBisimulationTests(unittest.TestCase):
-    def test_qian_roessler_modular_bisimulation(self):
+    def test_qian_roessler_modular(self):
         (fcrns, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
         icrns, _ = parse_crn('tests/crns/icrns/roessler_qian2011_modular.crn', is_file = True, modular = True)
         partial = {sp: [sp] for sp in fs}
@@ -1205,8 +1082,10 @@ class ModularBisimulationTests(unittest.TestCase):
         fcrns, fs = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
         icrns, _ = parse_crn('tests/crns/icrns/roessler_qian2011_modular.crn', is_file = True, modular = True)
         partial = {sp: [sp] for sp in fs}
+        backup = {sp: [sp] for sp in fs}
         v, i = modular_crn_bisimulation_test(fcrns, icrns, fs, partial)
         self.assertTrue(v)
+        self.assertDictEqual(partial, backup)
 
         fcrn, _ = parse_crn('tests/crns/roessler_01.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
@@ -1223,13 +1102,10 @@ class ModularBisimulationTests(unittest.TestCase):
         isc = {'a', 'b', 'c'}
 
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['C'], 'w3': [], 'w4': []}
-        assert moduleCond(module, fsc, isc, bisim) is True
         assert is_modular(bisim, module, isc, fsc) is True
         bisim = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'i1': ['B'], 'i2': ['C'], 'w3': [], 'w4': []}
-        assert moduleCond(module, fsc, isc, bisim) is True
         assert is_modular(bisim, module, isc, fsc) is True
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['A','B'], 'w3': [], 'w4': []}
-        assert moduleCond(module, fsc, isc, bisim) is False
         assert is_modular(bisim, module, isc, fsc) is False
 
     def test_modularity_example_02(self):
@@ -1242,30 +1118,23 @@ class ModularBisimulationTests(unittest.TestCase):
         isc = {'b'}
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
-        assert moduleCond(module, fsc, isc, minter) is True
         assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': ['B'], 'e5': []} 
-        assert moduleCond(module, fsc, isc, minter) is True
         assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B', 'B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
-        assert moduleCond(module, fsc, isc, minter) is False
         assert is_modular(minter, module, isc, fsc) is False
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': []} 
-        assert moduleCond(module, fsc, isc, minter) is False
         assert is_modular(minter, module, isc, fsc) is False
         isc = {'b', 'e2'}
-        assert moduleCond(module, fsc, isc, minter) is True
         assert is_modular(minter, module, isc, fsc) is True
         isc = {'b', 'e5'}
         minter = {'b': ['B'], 'e1': [], 'e2': [], 'e3': [], 'e4': [], 'e5': ['B']} 
-        assert moduleCond(module, fsc, isc, minter) is True
         assert is_modular(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': ['B']} 
-        assert moduleCond(module, fsc, isc, minter) is False
         assert is_modular(minter, module, isc, fsc) is False
 
     def test_modularity_example_03(self):
@@ -1277,21 +1146,82 @@ class ModularBisimulationTests(unittest.TestCase):
         module, _ = parse_crn(module)
         fsc, isc = {'A'}, {'a'}
         inter = {'a': ['A'], 'e1': ['A', 'A'], 'e6': ['A']}
-        assert moduleCond(module, fsc, isc, inter) is True
         assert is_modular(inter, module, isc, fsc) is True
 
-    def test_modularity_example_04(self):
-        fcrn = "A + B -> C + D"
-        icrn = "a + b -> x; x -> y + z; y -> c; z -> d"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
+@unittest.skipIf(SKIP_SLOW or SKIP_DEBUG, "skipping tests for debugging")
+class SlowBisimulationTests(unittest.TestCase):
+    def test_QingDong_thesis_i1_gs(self):
+        # NOTE: around 3 minutes
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter_01 = {'i778': ['Y'],
+                    'i575': ['X'],
+                    'i599': ['C'],
+                    'i2232': ['A'],
+                    'i73': ['B']}
 
-        print() 
-        fsc, isc = {'A','B', 'C', 'D'}, {'a', 'b', 'c', 'd'}
-        for e, bisim in enumerate(crn_bisimulations(fcrn, icrn)):
-            print(e, sorted(bisim.items()))
-            assert moduleCond(icrn, fsc, isc, bisim) == is_modular(bisim, icrn, isc, fsc)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
+                                     interpretation = inter_01,
+                                     permissive = 'graphsearch')
+        self.assertTrue(v)
 
+    def test_QingDong_thesis_i1_rs(self):
+        # NOTE: around 3 minutes
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter_01 = {'i778': ['Y'],
+                    'i575': ['X'],
+                    'i599': ['C'],
+                    'i2232': ['A'],
+                    'i73': ['B']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
+                                     interpretation = inter_01, 
+                                     permissive = 'reactionsearch')
+        self.assertTrue(v)
+
+    def dtest_QingDong_thesis_i1_ls(self):
+        # TODO: takes more than 15 min
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter_01 = {'i778': ['Y'],
+                    'i575': ['X'],
+                    'i599': ['C'],
+                    'i2232': ['A'],
+                    'i73': ['B']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
+                                     interpretation = inter_01, 
+                                     permissive = 'loopsearch')
+        self.assertTrue(v)
+
+    def test_QingDong_crn6_gs(self):
+        # NOTE: less than 5 min.
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        # These tests complete in less than 10 minutes
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
+        self.assertTrue(v)
+
+    def test_QingDong_crn6_rs(self):
+        # NOTE: less than 10 min.
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'reactionsearch')
+        self.assertTrue(v)
+
+    def dtest_QingDong_crn6_ls(self):
+        # TODO: More than 15 minutes!
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
+        self.assertTrue(v)
+
+    def dtest_qian_roessler_full(self):
+        # TODO: How long approximately? -- KILLED / OUT OF MEMORY
+        (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
+        (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
+        partial = {sp: [sp] for sp in fs}
+        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial)
+        self.assertTrue(v)
 
 
 if __name__ == '__main__':

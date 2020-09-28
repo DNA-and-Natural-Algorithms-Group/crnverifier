@@ -99,7 +99,7 @@ def get_modular_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
                  '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(inter.items()))))
     return fcrns, icrns, fs, inter
 
-def print_bisimulation_outputs(v, i, method):
+def print_bisimulation_outputs(v, i, method, verify_timeout):
     if v is True:
         print(f"Verification result for {method} = {v}.",
               f"The implementation CRN is a correct implementation of the formal CRN.")
@@ -108,7 +108,7 @@ def print_bisimulation_outputs(v, i, method):
               f"The implementation CRN is not a correct implementation of the formal CRN.")
     elif v is None:
         print(f"No verification result for {method}.",
-              f"Verification did not terminate within {args.verify_timeout} seconds.")
+              f"Verification did not terminate within {verify_timeout} seconds.")
 
 def get_pathway_decomposition_inputs(crn_files, formals, constants):
     """ Helper function to parse commandline input files.
@@ -255,7 +255,7 @@ def main():
                      '\n  '.join(f"{k} -> {' + '.join(v)}" for k, v in natural_sort(i.items())))
             log.info('Interpreted CRN:\n  {}'.format( 
                      '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
-        print_bisimulation_outputs(v, i, args.method)
+        print_bisimulation_outputs(v, i, args.method, args.verify_timeout)
 
     elif args.method in ('modular-crn-bisimulation'):
         # TODO: Interactive mode asks for input if fcrn isn't given, etc.
@@ -279,7 +279,7 @@ def main():
             for e, icrn in enumerate(icrns, 1):
                 log.info('Interpreted CRN module {}:\n  {}'.format(e, 
                          '\n  '.join(pretty_crn(clean_crn(icrn, inter = i)))))
-        print_bisimulation_outputs(v, i, args.method)
+        print_bisimulation_outputs(v, i, args.method, args.verify_timeout)
 
     elif args.method in ('formal-basis', 'pathway-decomposition'):
         # TODO: Interactive mode asks for input if fcrn isn't given, etc.

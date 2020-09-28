@@ -16,7 +16,7 @@ from collections import Counter
 from itertools import product, permutations, combinations, chain
 
 from .utils import interpret as interpretL
-from .deprecated import subsets, enum # check_permissive
+from .deprecated import subsets, enum 
 
 class SpeciesAssignmentError(Exception):
     pass
@@ -58,14 +58,14 @@ def inter_list(inter):
 def deformalize(k, fs):
     # Do not confuse formal species with same-named species in the
     # implementation CRN.
-    return ('impl', k) if k in fs else k
+    return f'i{{{k}}}' if k in fs else k
 
 def formalize(intrp):
     intr = {}
     for sp in intrp:
-        if isinstance(sp, tuple):
-            assert sp[0] == 'impl'
-            intr[sp[1]] = intrp[sp]
+        if sp[:2] == 'i{':
+            isp = sp[2:-1]
+            intr[isp] = intrp[sp]
         else:
             intr[sp] = intrp[sp]
     return intr
@@ -654,70 +654,6 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
                     tested.append(j)
     return True, 0
 
-def search_trivial(fcrn, icrn, fs, intrp, unknown = None, permcheck = 'graphsearch'):
-    """ A new trivial solver that returns all combinations, not just one multiple times ...
-    """
-    log.info(f'Trivial reaction solver: {unknown=}')
-
-    sicrn = subst(icrn, intrp)
-    T = updateT(fcrn, sicrn, fs)
-
-    # List of implementation reactions with an unknown species.
-    if unknown is None:
-        unknown = [i for i, irxn in enumerate(sicrn) if len(set(irxn[0]) - fs) or \
-                                                        len(set(irxn[1]) - fs)]
-    if not all(T[u][-1] for u in unknown):
-        raise SpeciesAssignmentError('no longer trivial-only.')
-    if unknown == []:
-        if not atomic_condition(intrp, fs):
-            log.debug(f'Atomic condition not satisfied.')
-            raise SpeciesAssignmentError('Atomic condition not satisfied.')
-        correct, info = check_permissive(fcrn, icrn, fs, intrp, permcheck)
-        if correct:
-            log.debug(f'Permissive condition satisfied ({info=}).')
-            yield intrp
-            return
-        log.debug(f'Permissive condition not satisfied ({info=}).')
-        raise SpeciesAssignmentError('Permissive condition not satisfied.')
-
-    for i in unknown:
-        irxn = sicrn[i]
-        log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => trivial')
-
-        fl = Counter({k:v for k, v in irxn[0].items() if k in fs})
-        fr = Counter({k:v for k, v in irxn[1].items() if k in fs})
-        ul = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k not in fs})
-        ur = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k not in fs})
-        log.debug(f'{fl=}, {fr=}')
-        log.debug(f'{ul=}, {ur=}')
-
-        [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-        tmpl = enumL(len(ul), list(fr.elements()), vl)
-        [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
-        tmpr = enumL(len(ur), list(fl.elements()), vr)
-
-        unext = [u for u in unknown if u != i]
-        for i, j in product(tmpl, tmpr):
-            intrpleft = dict(zip(kl, i))
-            intrpright = dict(zip(kr, j))
-            log.debug(f'{intrpleft=}')
-            log.debug(f'{intrpright=}')
-            for key in set(intrpleft) & set(intrpright):
-                if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
-                        for fsp in fs]):
-                    # Incompatible dictionaries!
-                    break
-            else:
-                inext = intrp.copy()
-                inext.update({k: Counter(v) for k, v in intrpleft.items()})
-                inext.update({k: Counter(v) for k, v in intrpright.items()})
-                try:
-                    for isuccess in search_trivial(fcrn, icrn, fs, inext, unext):
-                        yield isuccess
-                except SpeciesAssignmentError:
-                    continue
-    return
-
 def find_one_trivial(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
 
     # All unknown implementation reactions (i.e. those with some unknown
@@ -815,7 +751,7 @@ def atomic_condition(inter, fs):
     """
     return all(any(set(f) == set(v.elements()) for v in inter.values()) for f in fs)
 
-def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
+def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0, permcheck = 'graphsearch'):
     """ Find full interpretations matching every irxn to one frxn or trxn.
 
     This "row search" finds all valid combinations of 
@@ -827,8 +763,12 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
     reaction is introduced. 
 
     """
+    if moves is None:
+        moves = set()
+
     log.info(f'Searching row at {depth=}'.center(80-(2*depth), '~'))
     log.debug(f'Partial interpretation {inter_list(intrp)=}')
+    log.debug(f'Forbidden moves {moves=}')
 
     sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
@@ -851,7 +791,7 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
         correct, info = check_permissive(fcrn, icrn, fs, intrp, permcheck)
         if correct:
             log.debug(f'Permissive condition satisfied ({info=}).')
-            yield intrp
+            yield (intrp, moves) if depth > 0 else intrp
             return
         log.debug(f'Permissive condition not satisfied ({info=}).')
         raise SpeciesAssignmentError('Permissive condition not satisfied.')
@@ -863,7 +803,7 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
                 for e, t in enumerate(T)]))
 
     later = dict() # less promising partial interpretations ...
-    def search(later, n = 0, m = None):
+    def search(later, moves, n = 0, m = None):
         # use this to define a search hierarchy when sending results into the
         # next round. Currently, n and m are start and stop in a range of 
         # how many species interpet to a single species.
@@ -871,11 +811,17 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
             if m and n > m:
                 break
             if n in later:
-                for (inext, depth) in later[n]:
+                for (inext, depth, imove) in later[n]:
+                    if imove in moves:
+                        continue
+                    moves.add(imove)
                     try:
-                        for isuccess in search_row(fcrn, icrn, fs, inext, 
-                                                   depth + 1, permcheck):
-                            yield isuccess
+                        for ir, mr in search_row(fcrn, icrn, fs, inext, 
+                                                             moves, depth + 1, 
+                                                             permcheck):
+
+                            moves |= mr
+                            yield ir, mr
                     except SpeciesAssignmentError:
                         continue
                 del later[n]
@@ -897,23 +843,22 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
                 tmpr = enumL(len(ur), list(fl.elements()), vr)
 
                 for i, j in product(tmpl, tmpr):
-                    intrpleft = dict(zip(kl, i))
-                    intrpright = dict(zip(kr, j))
+                    intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
+                    intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
                     for key in set(intrpleft) & set(intrpright):
-                        if any([sorted(intrpleft[key][fsp]) != \
-                                sorted(intrpright[key][fsp]) for fsp in fs]):
+                        if any([intrpleft[key][fsp] != \
+                                intrpright[key][fsp] for fsp in fs]):
                             # Incompatible dictionaries!
                             break
                     else:
                         inext = intrp.copy()
-                        inext.update({k: Counter(v) for k, v in intrpleft.items()})
-                        inext.update({k: Counter(v) for k, v in intrpright.items()})
-                        level = max(len(v) for k, v in chain(intrpleft.items(), 
-                                                             intrpright.items()))
+                        imove = tuple(sorted(chain(intrpleft.items(), intrpright.items())))
+                        inext.update({k: Counter(v) for k, v in imove})
+                        level = max(len(v) for k, v in imove)
                         if level in later:
-                            later[level].append((inext, depth))
+                            later[level].append((inext, depth, imove))
                         else:
-                            later[level] = [(inext, depth)]
+                            later[level] = [(inext, depth, imove)]
 
         for c, frxn in enumerate(fcrn): # Assign a formal reaction.
             if not T[k][c]:
@@ -922,38 +867,39 @@ def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
             # left 
             ul = irxn[0] - frxn[0]
             sl = frxn[0] - irxn[0]
-            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-            tmpl = enumL(len(ul), list(sl.elements()), vl)
             # right
             ur = irxn[1] - frxn[1]
             sr = frxn[1] - irxn[1]
-            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
-            tmpr = enumL(len(ur), list(sr.elements()), vr)
 
-            for i, j in product(tmpl, tmpr):
-                intrpleft = dict(zip(kl, i))
-                intrpright = dict(zip(kr, j))
-                for key in set(intrpleft) & set(intrpright):
-                    if any([sorted(intrpleft[key][fsp]) != \
-                            sorted(intrpright[key][fsp]) for fsp in fs]):
-                        # Incompatible dictionaries!
-                        break
-                else:
-                    inext = intrp.copy()
-                    inext.update({k: Counter(v) for k, v in intrpleft.items()})
-                    inext.update({k: Counter(v) for k, v in intrpright.items()})
-                    level = max(len(v) for k, v in chain(intrpleft.items(), 
-                                                         intrpright.items()))
-                    if level in later:
-                        later[level].append((inext, depth))
+            if len(ul) or len(ur):
+                [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+                [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+                tmpl = enumL(len(ul), list(sl.elements()), vl)
+                tmpr = enumL(len(ur), list(sr.elements()), vr)
+
+                for i, j in product(tmpl, tmpr):
+                    intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
+                    intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
+                    for key in set(intrpleft) & set(intrpright):
+                        if any([intrpleft[key][fsp] != \
+                                intrpright[key][fsp] for fsp in fs]):
+                            # Incompatible dictionaries!
+                            break
                     else:
-                        later[level] = [(inext, depth)]
-            for isuccess in search(later, n = 0, m = 1):
-                yield isuccess
-        for isuccess in search(later, n = 0, m = 2):
-            yield isuccess
-    for isuccess in search(later, n = 2):
-        yield isuccess
+                        inext = intrp.copy()
+                        imove = tuple(sorted(chain(intrpleft.items(), intrpright.items())))
+                        inext.update({k: Counter(v) for k, v in imove})
+                        level = max(len(v) for k, v in imove)
+                        if level in later:
+                            later[level].append((inext, depth, imove))
+                        else:
+                            later[level] = [(inext, depth, imove)]
+            for i, m in search(later, moves, n = 0, m = 1):
+                yield (i, m) if depth > 0 else i
+        for i, m in search(later, moves, n = 0, m = 2):
+            yield (i, m) if depth > 0 else i
+    for i, m in search(later, moves, n = 2):
+        yield (i, m) if depth > 0 else i
     assert len(later) == 0
     return
 
@@ -971,7 +917,7 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
     if fs is None:
         fs = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
     if intrp is None:
-        intrp = {}
+        intrp = dict()
     log.info(f'Searching column at {depth=}'.center(40-(2*depth), '*'))
     log.debug(f'Partial interpretation {inter_list(intrp)=}')
 
@@ -1023,32 +969,33 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
             # left 
             ul = irxn[0] - frxn[0]
             sl = frxn[0] - irxn[0]
-            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-            tmpl = enumL(len(ul), list(sl.elements()), vl)
             # right
             ur = irxn[1] - frxn[1]
             sr = frxn[1] - irxn[1]
-            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
-            tmpr = enumL(len(ur), list(sr.elements()), vr)
-            
-            for i, j in product(tmpl, tmpr):
-                intrpleft = dict(zip(kl, i))
-                intrpright = dict(zip(kr, j))
-                for key in set(intrpleft) & set(intrpright):
-                    if any([sorted(intrpleft[key][fsp]) != \
-                            sorted(intrpright[key][fsp]) for fsp in fs]):
-                        # Incompatible dictionaries!
-                        break
-                else:
-                    inext = intrp.copy()
-                    inext.update({k: Counter(v) for k, v in intrpleft.items()})
-                    inext.update({k: Counter(v) for k, v in intrpright.items()})
-                    level = max(len(v) for k, v in chain(intrpleft.items(), 
-                                                         intrpright.items()))
-                    if level in later:
-                        later[level].append((inext, unext, depth))
+
+            if len(ul) or len(ur):
+                [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+                [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+                tmpl = enumL(len(ul), list(sl.elements()), vl)
+                tmpr = enumL(len(ur), list(sr.elements()), vr)
+                
+                for i, j in product(tmpl, tmpr):
+                    intrpleft = dict(zip(kl, i))
+                    intrpright = dict(zip(kr, j))
+                    for key in set(intrpleft) & set(intrpright):
+                        if any([sorted(intrpleft[key][fsp]) != \
+                                sorted(intrpright[key][fsp]) for fsp in fs]):
+                            # Incompatible dictionaries!
+                            break
                     else:
-                        later[level] = [(inext, unext, depth)]
+                        inext = intrp.copy()
+                        inext.update({k: Counter(v) for k, v in intrpleft.items()})
+                        inext.update({k: Counter(v) for k, v in intrpright.items()})
+                        level = max(len(v) for k, v in chain(intrpleft.items(), 
+                                                             intrpright.items()))
+                        later[level] = (later.get(level, [])) + [(inext, unext, depth)]
+            else: # Just in case the full interpretation is provided.
+                later[0] = (later.get(0, [])) + [(intrp.copy(), unext, depth)]
             for isuccess in search(later, n = 0, m = 1):
                 yield isuccess
         for isuccess in search(later, n = 1, m = 2):
@@ -1080,6 +1027,7 @@ def find_bisimulation(fcrn, icrn, fs, inter, permcheck):
     for parti in search_column(fcrn, icrn, fs, intrp):
         try:
             for bisim in search_row(fcrn, icrn, fs, parti, permcheck = permcheck):
+                log.debug(bisim)
                 if found is False:
                     yield True
                     found = True
@@ -1275,32 +1223,6 @@ def crn_bisimulations(fcrn, icrn,
         for bisim in out:
             yield formalize(bisim)
     else:
-        #wintr, max_depth, permissive_failure = next(out)
-        #wintr = formalize(wintr)
-        ##max_depth: if > 0, search depth in Qing's algorithm at which intrp was found
-        ##         if -1, permissive condition was proven false for intrp
-        ##         if -2, permissive condition could not be proven true for intrp
-        ##         with specified permissive_depth
-        ##permissive_failure: if max_depth < 0, permissive_failure[0] is formal
-        ##    reaction for which permissive condition failed if so and method was
-        ##    not 'graphsearch', permissive_failure[1] is implementation state
-        ##    which could not implement the reaction 
-        #if max_depth >= 0:
-        #    log.info("Delimiting condition cannot be satisfied:")
-        #    if max_depth >= len(fcrn):
-        #        log.info("An implementation reaction cannot be found in the formal CRN.")
-        #    else:
-        #        log.info("A formal reaction cannot be found in the implementation CRN.")
-        #    log.info(f"Maximum search depth reached: {max_depth}")
-        #    log.debug(f"Returning wrong interpretation:\n {wintr}")
-        #else:
-        #    [[R, P], istate] = permissive_failure
-        #    log.info("Permissive condition cannot be satisfied:")
-        #    log.info("The formal reaction: {}".format(
-        #        '{} -> {}'.format(' + '.join(R), ' + '.join(P))))
-        #    log.info(f"is not possible from implementation state: {istate}")
-        #    if max_depth == -2:
-        #        log.info(f"The maximum trivial reaction chain length {permissive_depth} has been reached.")
         yield None
 
 def modular_crn_bisimulation_test(fcrns, icrns, formals, 
