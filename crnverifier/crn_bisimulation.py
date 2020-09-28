@@ -42,6 +42,9 @@ def pretty_rxn(rxn, flag_internal = True):
 def rl(rxn):
     return [list(part.elements()) for part in rxn]
 
+def rc(rxn):
+    return [Counter(part) for part in rxn]
+
 def inter_counter(inter):
     # For internal representation of interpretations 
     # return interpretations of the format: inter[str] = Counter
@@ -812,7 +815,7 @@ def atomic_condition(inter, fs):
     """
     return all(any(set(f) == set(v.elements()) for v in inter.values()) for f in fs)
 
-def search_row(fcrn, icrn, fs, intrp, unknown, depth, permcheck):
+def search_row(fcrn, icrn, fs, intrp, depth = 0, permcheck = 'graphsearch'):
     """ Find full interpretations matching every irxn to one frxn or trxn.
 
     This "row search" finds all valid combinations of 
@@ -833,13 +836,15 @@ def search_row(fcrn, icrn, fs, intrp, unknown, depth, permcheck):
         log.debug(f'Delimiting condition not satisfied.')
         raise SpeciesAssignmentError('Delimiting condition not satisfied.')
 
-    if unknown is None:
-        # The row indices where unassigned species can be found.
-        unknown = [i for i, sirxn in enumerate(sicrn) if \
-                len(set(sirxn[0]) - fs) or len(set(sirxn[1]) - fs)]
+    # The row indices where unassigned species can be found, but we 
+    # remove duplicates of implementation reactions that solve for the
+    # same set of implementation species!
+    unknown = {tuple(sorted((set(sirxn[0]) | set(sirxn[1])) - fs)): i \
+                for i, sirxn in enumerate(sicrn)} 
+    log.debug(f'{unknown=}')
+    unknown = [v for k, v in unknown.items() if len(k)]
 
     if unknown == []:
-        #assert atomic_condition(intrp, fs)
         if not atomic_condition(intrp, fs):
             log.debug(f'Atomic condition not satisfied.')
             raise SpeciesAssignmentError('Atomic condition not satisfied.')
@@ -850,60 +855,67 @@ def search_row(fcrn, icrn, fs, intrp, unknown, depth, permcheck):
             return
         log.debug(f'Permissive condition not satisfied ({info=}).')
         raise SpeciesAssignmentError('Permissive condition not satisfied.')
-    else:
-        # Start with the unknown row with the minimal number of True's (excluding trivial reactions)
-        unknown = sorted(unknown, key = lambda x: T[x][:-1].count(True))
-        assert True in T[unknown[0]]
 
-    # all unsearched rows could be trivial -- try it!
-    #if all(T[x][-1] for x in unknown) and #if not any(T[k][:-1]):# and T[k][-1] is True:  
-    #    # This has its own permissive checker ...
-    #    for bisim in search_trivial(fcrn, icrn, fs, intrp):
-    #        log.debug(f'Permissive condition satisfied ({inter_list(bisim)=}).')
-    #        yield bisim
-    #    #check_trivial = False
-    
+    unknown = sorted(unknown, key = lambda x: (T[x][-1], T[x][:-1].count(True)))
+    # Start with the row with the minimal number of True's (excluding trivial reactions)
+    log.debug(f'{unknown=} \n' + '\n'.join(
+        [f'{e} {t=} {pretty_rxn(rl(sicrn[e]))} ({pretty_rxn(rl(icrn[e]))})' \
+                for e, t in enumerate(T)]))
+
+    later = dict() # less promising partial interpretations ...
+    def search(later, n = 0, m = None):
+        # use this to define a search hierarchy when sending results into the
+        # next round. Currently, n and m are start and stop in a range of 
+        # how many species interpet to a single species.
+        while later:
+            if m and n > m:
+                break
+            if n in later:
+                for (inext, depth) in later[n]:
+                    try:
+                        for isuccess in search_row(fcrn, icrn, fs, inext, 
+                                                   depth + 1, permcheck):
+                            yield isuccess
+                    except SpeciesAssignmentError:
+                        continue
+                del later[n]
+            n += 1
+
     for k in unknown:
         irxn = sicrn[k] 
-        unext = [u for u in unknown if u != k]
 
-        # It can only be a trivial reaction.
-        if not any(T[k][:-1]):# and T[k][-1] is True:  
+        if T[k][-1] is True: # Assign a trivial reaction.
             log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => trivial')
             fl = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k in fs})
             fr = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k in fs})
             ul = Counter({k:v for k, v in (irxn[0] - irxn[1]).items() if k not in fs})
             ur = Counter({k:v for k, v in (irxn[1] - irxn[0]).items() if k not in fs})
+            if len(ul) or len(ur):
+                [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+                tmpl = enumL(len(ul), list(fr.elements()), vl)
+                [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+                tmpr = enumL(len(ur), list(fl.elements()), vr)
 
-            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-            tmpl = enumL(len(ul), list(fr.elements()), vl)
-            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
-            tmpr = enumL(len(ur), list(fl.elements()), vr)
+                for i, j in product(tmpl, tmpr):
+                    intrpleft = dict(zip(kl, i))
+                    intrpright = dict(zip(kr, j))
+                    for key in set(intrpleft) & set(intrpright):
+                        if any([sorted(intrpleft[key][fsp]) != \
+                                sorted(intrpright[key][fsp]) for fsp in fs]):
+                            # Incompatible dictionaries!
+                            break
+                    else:
+                        inext = intrp.copy()
+                        inext.update({k: Counter(v) for k, v in intrpleft.items()})
+                        inext.update({k: Counter(v) for k, v in intrpright.items()})
+                        level = max(len(v) for k, v in chain(intrpleft.items(), 
+                                                             intrpright.items()))
+                        if level in later:
+                            later[level].append((inext, depth))
+                        else:
+                            later[level] = [(inext, depth)]
 
-            log.warning(f'{ul=} {fr=}')
-            log.warning(f'{ur=} {fl=}')
-
-            for i, j in product(tmpl, tmpr):
-                intrpleft = dict(zip(kl, i))
-                intrpright = dict(zip(kr, j))
-                for key in set(intrpleft) & set(intrpright):
-                    if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
-                            for fsp in fs]):
-                        # Incompatible dictionaries!
-                        break
-                else:
-                    inext = intrp.copy()
-                    inext.update({k: Counter(v) for k, v in intrpleft.items()})
-                    inext.update({k: Counter(v) for k, v in intrpright.items()})
-                    try:
-                        for isuccess in search_row(fcrn, icrn, fs, inext, unext, depth + 1,
-                                                   permcheck):
-                            yield isuccess
-                    except SpeciesAssignmentError:
-                        continue
-
-        # This part cannot solve trivial reactions ... 
-        for c, frxn in enumerate(fcrn):
+        for c, frxn in enumerate(fcrn): # Assign a formal reaction.
             if not T[k][c]:
                 continue
             log.debug(f'Interpret: {pretty_rxn(rl(irxn))} => {pretty_rxn(rl(frxn))}')
@@ -922,22 +934,27 @@ def search_row(fcrn, icrn, fs, intrp, unknown, depth, permcheck):
                 intrpleft = dict(zip(kl, i))
                 intrpright = dict(zip(kr, j))
                 for key in set(intrpleft) & set(intrpright):
-                    if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
-                            for fsp in fs]):
+                    if any([sorted(intrpleft[key][fsp]) != \
+                            sorted(intrpright[key][fsp]) for fsp in fs]):
                         # Incompatible dictionaries!
                         break
                 else:
                     inext = intrp.copy()
                     inext.update({k: Counter(v) for k, v in intrpleft.items()})
                     inext.update({k: Counter(v) for k, v in intrpright.items()})
-                    try:
-                        for isuccess in search_row(fcrn, icrn, fs, 
-                                                   inext, unext,
-                                                   depth + 1, permcheck):
-                            yield isuccess
-                    except SpeciesAssignmentError:
-                        continue
-
+                    level = max(len(v) for k, v in chain(intrpleft.items(), 
+                                                         intrpright.items()))
+                    if level in later:
+                        later[level].append((inext, depth))
+                    else:
+                        later[level] = [(inext, depth)]
+            for isuccess in search(later, n = 0, m = 1):
+                yield isuccess
+        for isuccess in search(later, n = 0, m = 2):
+            yield isuccess
+    for isuccess in search(later, n = 2):
+        yield isuccess
+    assert len(later) == 0
     return
 
 def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0):
@@ -946,16 +963,17 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
     This "column search" finds all valid combinations of formal reaction to
     implementation reaction. For example, if there is one formal reaction and
     three compatible implementation reactions, then it will return three
-    interpretations that have exactly one reaction interpreted.
+    interpretations that have exactly one reaction interpreted. Note that every
+    result of the column search must pass the delimiting condition, but not
+    necessarily atomic or permissive condition.
 
     """
-    log.info(f'Searching column at {depth=}'.center(40-(2*depth), '*'))
-    log.debug(f'Partial interpretation {inter_list(intrp)=}')
-
     if fs is None:
         fs = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
     if intrp is None:
         intrp = {}
+    log.info(f'Searching column at {depth=}'.center(40-(2*depth), '*'))
+    log.debug(f'Partial interpretation {inter_list(intrp)=}')
 
     sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
@@ -971,11 +989,29 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
     unknown = sorted(unknown, key = lambda x: sum(T[j][x] for j in range(len(sicrn))))
 
     if len(unknown) == 0: 
-        #if not atomic_condition(intrp, fs):
-        #    log.debug(f'Atomic condition not satisfied.')
-        #    raise SpeciesAssignmentError('Atomic condition not satisfied.')
+        # Note, we cannot test for the atomic condition at this point, because
+        # some trivial reactions may be needed to satisfy the atomic condition.
         yield intrp
         return
+
+    later = dict() # less promising partial interpretations ...
+    def search(later, n = 0, m = None):
+        # use this to define a search hierarchy when sending results into the
+        # next round. Currently, n and m are start and stop in a range of 
+        # how many species interpet to a single species.
+        while later:
+            if m and n > m:
+                break
+            if n in later:
+                for (inext, unext, depth) in later[n]:
+                    try:
+                        for isuccess in search_column(fcrn, icrn, fs, 
+                                                      inext, unext, depth + 1):
+                            yield isuccess
+                    except SpeciesAssignmentError:
+                        continue
+                del later[n]
+            n += 1
 
     for c in unknown:
         frxn = fcrn[c]
@@ -994,27 +1030,35 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
             sr = frxn[1] - irxn[1]
             [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
             tmpr = enumL(len(ur), list(sr.elements()), vr)
-
+            
             for i, j in product(tmpl, tmpr):
                 intrpleft = dict(zip(kl, i))
                 intrpright = dict(zip(kr, j))
                 for key in set(intrpleft) & set(intrpright):
-                    if any([sorted(intrpleft[key][fsp]) != sorted(intrpright[key][fsp]) \
-                        for fsp in fs]):
+                    if any([sorted(intrpleft[key][fsp]) != \
+                            sorted(intrpright[key][fsp]) for fsp in fs]):
                         # Incompatible dictionaries!
                         break
                 else:
                     inext = intrp.copy()
                     inext.update({k: Counter(v) for k, v in intrpleft.items()})
                     inext.update({k: Counter(v) for k, v in intrpright.items()})
-                    try:
-                        for isuccess in search_column(fcrn, icrn, fs, inext, unext, depth + 1):
-                            yield isuccess
-                    except SpeciesAssignmentError:
-                        continue
+                    level = max(len(v) for k, v in chain(intrpleft.items(), 
+                                                         intrpright.items()))
+                    if level in later:
+                        later[level].append((inext, unext, depth))
+                    else:
+                        later[level] = [(inext, unext, depth)]
+            for isuccess in search(later, n = 0, m = 1):
+                yield isuccess
+        for isuccess in search(later, n = 1, m = 2):
+            yield isuccess
+    for isuccess in search(later, n = 2):
+        yield isuccess
+    assert len(later) == 0
     return
 
-def find_bisimulation(fcrn, icrn, fs, inter, depth, permcheck):
+def find_bisimulation(fcrn, icrn, fs, inter, permcheck):
     """
     fcrn, icrn, fs, unknown and inter, permcheck remain constant, i think.
 
@@ -1035,7 +1079,7 @@ def find_bisimulation(fcrn, icrn, fs, inter, depth, permcheck):
     found = False
     for parti in search_column(fcrn, icrn, fs, intrp):
         try:
-            for bisim in search_row(fcrn, icrn, fs, parti, None, depth, permcheck):
+            for bisim in search_row(fcrn, icrn, fs, parti, permcheck = permcheck):
                 if found is False:
                     yield True
                     found = True
@@ -1224,7 +1268,6 @@ def crn_bisimulations(fcrn, icrn,
     out = find_bisimulation(fcrn, icrn, 
                             set(formals), 
                             inter, 
-                            0, 
                             permissive)
 
     correct = next(out)

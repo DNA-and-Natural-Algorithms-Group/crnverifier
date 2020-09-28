@@ -11,56 +11,54 @@ import unittest
 
 from collections import Counter
 from crnverifier.utils import parse_crn
-from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
-                                          modular_crn_bisimulation_test,
-                                          crn_bisimulations)
 from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
-                                          same_reaction, 
-                                          search_column, 
-                                          search_trivial,
-                                          is_modular, 
-                                          inter_counter,
-                                          inter_list,
-                                          subst, 
-                                          enumL, 
+                                          # Main interface
+                                          crn_bisimulations,
+                                          crn_bisimulation_test, 
+                                          modular_crn_bisimulation_test,
+                                          # HelperTests
                                           formal_states,
                                           subsetsL, 
+                                          enumL, 
+                                          same_reaction, 
                                           updateT, 
-                                          checkT)
-from crnverifier.deprecated import moduleCond
+                                          checkT,
+                                          # Individual test classes
+                                          search_column, 
+                                          search_row, 
+                                          search_trivial,
+                                          is_modular, 
+                                          # Just used
+                                          inter_counter,
+                                          inter_list,
+                                          subst) 
 
 SKIP_SLOW = True
+SKIP_DEBUG = True
 
+def rl(rxn):
+    return [list(part.elements()) for part in rxn]
+
+def rc(rxn):
+    return [Counter(part) for part in rxn]
+
+
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class JustCuriousTests(unittest.TestCase):
-    # Maybe those tests are useless, but I wonder ...
+    # Some small examples that are easy to verify.
     def test_me_quickly_01(self):
         fcrn = "A + B -> C"
         icrn = "x + y -> c + d"
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        if len(bisims) != 4:
+            print('FAILURE:')
+            for e, b in enumerate(bisims, 1):
+                print(e, b)
+        assert len(bisims) == 4
 
-        #print()
-        #for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-        #    print(e, b)
-
-        assert len(list(crn_bisimulations(fcrn, icrn))) == 4
-
-        fcrn = "A + B -> C"
-        icrn = "x + y + z -> c + d"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-            #print(e, b)
-            assert b is None
-
-        fcrn = " -> A"
-        icrn = " y -> a"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        for e, b in enumerate(crn_bisimulations(fcrn, icrn), 1):
-            #print(e, b)
-            assert b is None
-
+    def test_me_quickly_02(self):
         fcrn = " -> A"
         icrn = " -> y; y -> a"
         fcrn, _ = parse_crn(fcrn)
@@ -69,30 +67,597 @@ class JustCuriousTests(unittest.TestCase):
         assert len(bisims) == 1
         self.assertDictEqual(bisims[0], {'y': ['A'], 'a': ['A']})
 
+    def test_me_quickly_03(self):
         fcrn = " -> A"
         icrn = " -> y; y <=> z; z -> a"
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        for e, b in enumerate(bisims):
-            print(e, b)
-        #assert len(bisims) == 1
+        if len(bisims) != 1:
+            print('FAILURE:')
+            for e, b in enumerate(bisims):
+                print(e, b)
         self.assertDictEqual(bisims[0], {'a': ['A'], 'y': ['A'], 'z': ['A']})
+        #assert len(bisims) == 1
 
+    def test_me_quickly_04(self):
         fcrn = "A -> "
         icrn = "a -> y; y <=> z; z -> "
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        #assert len(bisims) == 2
-        for e, b in enumerate(bisims):
-            print(e, b)
+        if len(bisims) != 2:
+            print('FAILURE:')
+            for e, b in enumerate(bisims):
+                print(e, b)
         b1 = {'a': ['A'], 'y': [], 'z': []}
         b2 = {'a': ['A'], 'y': ['A'], 'z': ['A']}
         assert b1 in bisims
         assert b2 in bisims
+        #assert len(bisims) == 2
 
-#@unittest.skip('debug')
+    def test_me_quickly_false(self):
+        fcrn = "A + B -> C"
+        icrn = "x + y + z -> c + d"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        assert len(bisims) == 1
+        assert bisims[0] is None
+
+        fcrn = " -> A"
+        icrn = " y -> a"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        bisims = list(crn_bisimulations(fcrn, icrn))
+        assert len(bisims) == 1
+        assert bisims[0] is None
+
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+class HelperTests(unittest.TestCase):
+    """ Helper functions for CRN bisimulation:
+      - formal_states (TODO)
+      - subsetsL
+      - enumL
+      - same_reaction
+      - updateT (TODO)
+      - checkT
+    """
+    def test_formal_states_exact(self):
+        state = []
+        inter = {'a': ['A'], 
+                 'b': ['B'],
+                 'x': ['A', 'B'],
+                 'y': ['A', 'A']}
+        assert list(formal_states(state, inter)) == [[]]
+
+        state = ['A']
+        inter = {'a': ['A'], 
+                 'b': ['B'],
+                 'x': ['A', 'B'],
+                 'y': ['A', 'A']}
+        minis = [['a'], ['x'], ['y']]
+        assert list(formal_states(state, inter)) == minis
+
+    def test_formal_states_supersets(self):
+        # TODO: those calls return more than the necessary 
+        # minimal formal states. Does that matter?
+        state = ['A', 'A']
+        inter = {'a': ['A'], 
+                 'b': ['B'],
+                 'x': ['A', 'B'],
+                 'y': ['A', 'A']}
+        minis = [['a', 'a'], ['a', 'x'], ['x', 'x'], ['y']]
+        supfs = list(map(sorted, formal_states(state, inter))) 
+        assert all(sorted(m) in supfs for m in minis)
+        assert len(minis) < len(supfs)
+
+        state = ['A', 'B']
+        inter = {'a': ['A'], 
+                 'b': ['B'],
+                 'c': ['C'],
+                 'x': ['A', 'B']}
+        minis = [['a', 'b'], ['x']]
+        supfs = list(map(sorted, formal_states(state, inter))) 
+        assert all(sorted(m) in supfs for m in minis)
+        assert len(minis) < len(supfs)
+
+        state = ['A', 'B', 'A']
+        inter = {'a': ['A'], 
+                 'b': ['B'],
+                 'c': ['C'],
+                 'x': ['A', 'B']}
+        minis = [['a', 'a', 'b'], ['x', 'a'], ['x', 'x']]
+        supfs = list(map(sorted, formal_states(state, inter))) 
+        assert all(sorted(m) in supfs for m in minis)
+        assert len(minis) < len(supfs)
+
+    def test_subsets(self):
+        #['A']      => [[], ['A']]
+        #['A', 'A'] => [[], ['A'], ['A', 'A']
+        #['A', 'B'] => [[], ['A'], ['B'], ['A', 'B']
+        assert sorted(subsetsL([])) == [()]
+        assert sorted(subsetsL(['A'])) == [(), ('A',)]
+        assert sorted(subsetsL(['A', 'A'])) == [(), ('A',), ('A',), ('A', 'A')]
+        assert sorted(set(subsetsL(['A', 'A']))) == [(), ('A',), ('A', 'A')]
+        assert sorted(subsetsL(['A', 'B'])) == sorted([(), ('A',), ('B',), ('A', 'B')])
+        assert sorted(set(subsetsL(['A', 'A', 'B']))) == sorted(
+                [(), ('A',), ('B',), 
+                 ('A', 'A'), ('A', 'B'), 
+                 ('A', 'A', 'B')])
+
+    def test_enum_noweights(self):
+        # For example: 
+        #   - n = 3 for three unassinged implmentation species (x, y, z).
+        assert list(enumL(0, [])) == [[]]
+        assert list(enumL(1, [])) == [[()]]
+        assert list(enumL(2, [])) == [[(), ()]]
+        assert list(enumL(3, [])) == [[(), (), ()]]
+        assert list(enumL(4, [])) == [[(), (), (), ()]]
+
+        assert list(enumL(0, ['A'])) == [[]]
+        assert list(enumL(1, ['A'])) == [[('A',)]]
+        assert list(enumL(1, ['A', 'B', 'C'])) == [[('A', 'B', 'C')]]
+        assert sorted(enumL(2, ['A'])) == sorted([[('A',), ()], [(), ('A',)]])
+        assert sorted(enumL(3, ['A', 'B'])) == sorted([
+                 [('A',), ('B',), ()],
+                 [('A',), (), ('B',)],
+                 [('B',), ('A',), ()], 
+                 [('B',), (), ('A',)],
+                 [(), ('A',), ('B',)], 
+                 [(), ('B',), ('A',)], 
+                 [('A', 'B'), (), ()],
+                 [(), ('A', 'B'), ()],
+                 [(), (), ('A', 'B')]])
+
+        assert sorted(enumL(2, ['A', 'A', 'B'])) == sorted([ 
+                 [(), ('A', 'A', 'B')], 
+                 [('A', 'A', 'B'), ()], 
+                 [('A', 'B'), ('A',)],
+                 [('A', 'A'), ('B',)], 
+                 [('B',), ('A', 'A')], 
+                 [('A',), ('A', 'B')]])
+
+        assert sorted(enumL(2, ['A', 'B', 'C'])) == sorted([
+                 [('A', 'B', 'C'), ()], 
+                 [(), ('A', 'B', 'C')], 
+                 [('A',), ('B', 'C')], 
+                 [('B',), ('A', 'C')], 
+                 [('C',), ('A', 'B')], 
+                 [('A', 'B'), ('C',)], 
+                 [('A', 'C'), ('B',)],
+                 [('B', 'C'), ('A',)]])
+
+    def test_enum_weights(self):
+        assert list(enumL(0, [], weights = [])) == [[]]
+        assert list(enumL(1, [], weights = [1])) == [[()]]
+        assert list(enumL(2, [], weights = [1, 1])) == [[(), ()]]
+        assert list(enumL(3, [], weights = [1, 2, 3])) == [[(), (), ()]]
+
+        assert list(enumL(1, ['A'], weights = [1])) == [[('A',)]]
+        with self.assertRaises(SpeciesAssignmentError):
+            assert list(enumL(1, ['A'], weights = [2])) == [[()]]
+        assert list(enumL(1, ['A', 'A'], weights = [2])) == [[('A',)]]
+        assert sorted(list(enumL(2, ['A', 'A'], weights = [2, 1]))) == sorted(
+                [[('A',), ()], [(), ('A', 'A')]])
+        assert sorted(list(enumL(2, ['A', 'A'], weights = [1, 2]))) == sorted(
+                [[(), ('A',)], [('A', 'A'), ()]])
+ 
+        assert sorted(list(enumL(2, ['A', 'B'], weights = [1, 2]))) == sorted(
+                [[('A', 'B'), ()]])
+
+        assert sorted(list(enumL(2, ['A', 'A', 'B'], weights = [1, 2]))) == sorted(
+                [[('A', 'A', 'B'), ()],
+                 [('B',), ('A',)]])
+
+        assert sorted(list(enumL(3, list('AAAAB'), weights = [2, 1, 2]))) == sorted([
+                    [(), ('A', 'A', 'A', 'A', 'B'), ()], 
+                    [('A',), ('A', 'A', 'B'), ()],
+                    [(), ('A', 'A', 'B'), ('A',)], 
+                    [('A', 'A'), ('B',), ()],
+                    [(), ('B',), ('A', 'A')],
+                    [('A',), ('B',), ('A',)]])
+
+    def test_same_reaction(self):
+        frxn = "A + B -> C"
+        irxn = "A + B -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C + B"
+        irxn = "A + b -> B"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+    def test_same_reaction_new(self):
+        # trying to break the old code ... 
+        frxn = "A -> C + D"
+        irxn = "A + y -> C + y"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A -> C"
+        irxn = "A + y -> C + y"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+    def test_same_reaction_products(self):
+        frxn = "A + B -> C + D"
+        irxn = "A + B -> c"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C"
+        irxn = "A + B -> c + d"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C"
+        irxn = "A + B -> "
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C"
+        irxn = "A + B -> C + B"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+    def test_same_reaction_reactants(self):
+        # NOTE: tests include potential null species ...
+        frxn = "A + B -> C"
+        irxn = "a -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A -> C + D"
+        irxn = "a + b -> C + D"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A -> C + D"
+        irxn = "A + b -> C + D"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C"
+        irxn = "A + B + A -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+        frxn = "A + B -> C"
+        irxn = "A -> C"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+
+    def test_update_table(self):
+        fcrn = "A + B -> C"
+        icrn = "x + y -> c + d"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[True, True]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+        fcrn = "A + B -> C"
+        icrn = "A + B -> C + d"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[True, False]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+        fcrn = " -> A"
+        icrn = " -> y; y <=> z; z -> a"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[True, True], 
+                 [True, True],
+                 [True, True], 
+                 [True, True]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+        fcrn = " -> A"
+        icrn = " -> A; A <=> A; A -> A"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[True, False],
+                 [False, True], 
+                 [False, True],
+                 [False, True]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+        fcrn = " -> A"
+        icrn = " -> ;  <=> ;  -> A"
+        fcrn, _ = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[False, True],
+                 [False, True],
+                 [False, True],
+                 [True, False]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+    def test_update_table_large(self):
+        # TODO: this is an example from a run, it shows that those tables may
+        # have many duplicate entries! Does that matter?
+        fcrn = """ A + b -> c
+                   b -> c
+                   c -> b
+                   b -> 2b """
+        icrn = """ A -> i7
+                   i7 -> A
+                   i7 + b -> i19
+                   b -> i96
+                   b -> i148
+                   i7 + b -> i19
+                   b -> i96
+                   b -> i148
+                   i7 + b -> i19
+                   b -> i96
+                   b -> i148
+                   c -> i340
+                   c -> i340
+                   i19 -> c
+                   i96 -> c
+                   i148 -> b + b
+                   i340 -> b """
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        table = [[False, False, False, False, True],
+                 [False, False, False, False, True],
+                 [True,  True,  False, True,  True], 
+                 [False, True,  False, True,  True],
+                 [False, True,  False, True,  True],
+                 [True,  True,  False, True,  True], 
+                 [False, True,  False, True,  True], 
+                 [False, True,  False, True,  True],
+                 [True,  True,  False, True,  True],
+                 [False, True,  False, True,  True], 
+                 [False, True,  False, True,  True],
+                 [False, False, True,  False, True],
+                 [False, False, True,  False, True], 
+                 [True,  True,  False, False, True],
+                 [True,  True,  False, False, True], 
+                 [False, False, False, True,  True],
+                 [False, False, True,  False, True]]
+        assert updateT(fcrn, icrn, fs, counter = False) == table
+
+    def test_check_table(self):
+        table = [[True, True]]
+        assert checkT(table) is True
+        table = [[False, False]]
+        assert checkT(table) is False
+        table = [[True, True],
+                 [False, False]]
+        assert checkT(table) is False
+        table = [[False, True],
+                 [True, False]]
+        assert checkT(table) is True
+        table = [[False, False],
+                 [True, True]]
+        assert checkT(table) is False
+        table = [[True, False],
+                 [True, False]]
+        assert checkT(table) is True
+        table = [[True, True, False],
+                 [False, True, False]]
+        assert checkT(table) is True
+
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+class TestColumnSearch(unittest.TestCase):
+    def test_search_column_01(self):
+        fcrn = "A -> B + C"
+        icrn = """x1 -> x2
+                  x2 -> x3 + x4
+                  x3 <=> x5
+                  x4 -> x7 + x8 
+               """
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+
+        i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
+        i2 = {'x2': ['A'], 'x3': ['B'], 'x4': ['C']}
+        i3 = {'x2': ['A'], 'x3': ['C'], 'x4': ['B']}
+        i4 = {'x2': ['A'], 'x3': [], 'x4': ['B', 'C']}
+        i5 = {'x4': ['A'], 'x7': ['B', 'C'], 'x8': []}
+        i6 = {'x4': ['A'], 'x7': ['B'], 'x8': ['C']}
+        i7 = {'x4': ['A'], 'x7': ['C'], 'x8': ['B']}
+        i8 = {'x4': ['A'], 'x7': [], 'x8': ['B', 'C']}
+        i9 = {'x1': ['A'], 'x2': ['B', 'C']}
+        cols = list(search_column(fcrn, icrn, fs))
+        if len(cols) != 9:
+            print('FAILURE:')
+            for e, b in enumerate(cols, 1):
+                print(e, inter_list(b))
+        assert len(cols) == 9
+        assert inter_counter(i1) in cols
+        assert inter_counter(i2) in cols
+        assert inter_counter(i3) in cols
+        assert inter_counter(i4) in cols
+        assert inter_counter(i5) in cols
+        assert inter_counter(i6) in cols
+        assert inter_counter(i7) in cols
+        assert inter_counter(i8) in cols
+        assert inter_counter(i9) in cols
+
+    def test_search_column_02(self):
+        fcrn = """A + B -> C + D
+                  A + C -> B + D"""
+        icrn = """x1 -> x2
+                  x3 + x4 <=> x5
+                  x2 -> x6 + x8
+                  x5 -> x7
+                  x3 <=> x6
+                  x9 <=> x10
+                  x10 + x4 <=> x1 
+                  x7 -> x9 + x8"""
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        cols = list(search_column(fcrn, icrn, fs))
+
+        # SB: I didn't actually check those, but you should if something goes wrong!
+        i01 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i02 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': []}
+        i03 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D']}
+        i04 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i05 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x7': ['A', 'C'], 'x9': ['B']}
+        i06 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i07 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x7': ['A', 'C'], 'x9': ['B', 'D']}
+        i08 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i09 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': []}
+        i10 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D']}
+        i11 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i12 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x2': ['A', 'C'], 'x6': ['B']}
+        i13 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i14 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x2': ['A', 'C'], 'x6': ['B', 'D']}
+        i15 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i16 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D']}
+        i17 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': []}
+        i18 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i19 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x7': ['A', 'B'], 'x9': ['C', 'D']}
+        i20 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i21 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x7': ['A', 'B'], 'x9': ['C']}
+        i22 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i23 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D']}
+        i24 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': []}
+        i25 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i26 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x2': ['A', 'B'], 'x6': ['C', 'D']}
+        i27 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i28 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x2': ['A', 'B'], 'x6': ['C']}
+
+        if len(cols) != 28:
+            print('FAILURE:')
+            for e, b in enumerate(cols, 1):
+                print(e, inter_list(b))
+        assert len(cols) == 28 
+
+#@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+class TestRowSearch(unittest.TestCase):
+    def test_search_row_01(self):
+        fcrn = "A -> B + C"
+        icrn = """x1 -> x2
+                  x2 -> x3 + x4
+                  x3 <=> x5
+                  x4 -> x7 + x8 
+               """
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        #i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
+        i4 = {'x2': ['A'], 'x3': [], 'x4': ['B', 'C']}  #2
+        #i5 = {'x4': ['A'], 'x7': ['B', 'C'], 'x8': []} 
+        #i8 = {'x4': ['A'], 'x7': [], 'x8': ['B', 'C']} 
+        i9 = {'x1': ['A'], 'x2': ['B', 'C']}            #36
+
+        i6 = {'x4': ['A'], 'x7': ['B'], 'x8': ['C']}
+        i6r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
+
+        i7 = {'x4': ['A'], 'x7': ['C'], 'x8': ['B']}
+        i7r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
+
+        i2 = {'x2': ['A'], 'x3': ['B'], 'x4': ['C']}
+        i2r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': ['C'], 'x8': []}
+        i2r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': [], 'x8': ['C']}
+
+        i3 = {'x2': ['A'], 'x3': ['C'], 'x4': ['B']}
+        i3r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': [], 'x8': ['B']}
+        i3r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': ['B'], 'x8': []}
+
+
+        rows = list(search_row(fcrn, icrn, fs, inter_counter(i3)))
+        if len(rows) != 1:
+            print('FAILURE:')
+            for e, b in enumerate(rows, 1):
+                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+
+        assert False
+
+
+        #cols = list(search_column(fcrn, icrn, fs))
+        #if len(cols) != 9:
+        #    print('FAILURE:')
+        #    for e, b in enumerate(cols, 1):
+        #        print(e, inter_list(b))
+        #assert len(cols) == 9
+        #assert inter_counter(i1) in cols
+        #assert inter_counter(i2) in cols
+        #assert inter_counter(i3) in cols
+        #assert inter_counter(i4) in cols
+        #assert inter_counter(i5) in cols
+        #assert inter_counter(i6) in cols
+        #assert inter_counter(i7) in cols
+        #assert inter_counter(i8) in cols
+        #assert inter_counter(i9) in cols
+
+    def dont_test_search_column_02(self):
+        fcrn = """A + B -> C + D
+                  A + C -> B + D"""
+        icrn = """x1 -> x2
+                  x3 + x4 <=> x5
+                  x2 -> x6 + x8
+                  x5 -> x7
+                  x3 <=> x6
+                  x9 <=> x10
+                  x10 + x4 <=> x1 
+                  x7 -> x9 + x8"""
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        cols = list(search_column(fcrn, icrn, fs))
+
+        # SB: I didn't actually check those, but you should if something goes wrong!
+        i01 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i02 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': []}
+        i03 = {'x1': ['A', 'B'], 'x2': ['C', 'D'], 'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D']}
+        i04 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i05 = {'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D'], 'x7': ['A', 'C'], 'x9': ['B']}
+        i06 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x5': ['A', 'C'], 'x7': ['B', 'D']}
+        i07 = {'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': [], 'x7': ['A', 'C'], 'x9': ['B', 'D']}
+        i08 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i09 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': []}
+        i10 = {'x5': ['A', 'B'], 'x7': ['C', 'D'], 'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D']}
+        i11 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i12 = {'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D'], 'x2': ['A', 'C'], 'x6': ['B']}
+        i13 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x1': ['A', 'C'], 'x2': ['B', 'D']}
+        i14 = {'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': [], 'x2': ['A', 'C'], 'x6': ['B', 'D']}
+        i15 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i16 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C'], 'x8': ['D']}
+        i17 = {'x1': ['A', 'C'], 'x2': ['B', 'D'], 'x7': ['A', 'B'], 'x9': ['C', 'D'], 'x8': []}
+        i18 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i19 = {'x2': ['A', 'C'], 'x6': ['B', 'D'], 'x8': [], 'x7': ['A', 'B'], 'x9': ['C', 'D']}
+        i20 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x5': ['A', 'B'], 'x7': ['C', 'D']}
+        i21 = {'x2': ['A', 'C'], 'x6': ['B'], 'x8': ['D'], 'x7': ['A', 'B'], 'x9': ['C']}
+        i22 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i23 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C'], 'x8': ['D']}
+        i24 = {'x5': ['A', 'C'], 'x7': ['B', 'D'], 'x2': ['A', 'B'], 'x6': ['C', 'D'], 'x8': []}
+        i25 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i26 = {'x7': ['A', 'C'], 'x9': ['B', 'D'], 'x8': [], 'x2': ['A', 'B'], 'x6': ['C', 'D']}
+        i27 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x1': ['A', 'B'], 'x2': ['C', 'D']}
+        i28 = {'x7': ['A', 'C'], 'x9': ['B'], 'x8': ['D'], 'x2': ['A', 'B'], 'x6': ['C']}
+
+        if len(cols) != 28:
+            print('FAILURE:')
+            for e, b in enumerate(cols, 1):
+                print(e, inter_list(b))
+        assert len(cols) == 28 
+
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestSearchSpace(unittest.TestCase):
     def test_1f_1i(self):
         fcrn = "A + B -> C + D"
@@ -210,6 +775,7 @@ class TestSearchSpace(unittest.TestCase):
         #    print(e, {k:v for k, v in sorted(b.items())})
         assert len(bisims) == 16
 
+@unittest.skipIf(SKIP_DEBUG, "not sure if I keep this!")
 class TestTrivialSearch(unittest.TestCase):
     def test_search_trivial_01(self):
         fcrn = "A + B -> C + D"
@@ -259,409 +825,8 @@ class TestTrivialSearch(unittest.TestCase):
                'b': Counter({'B': 1}), 
                'c': Counter({'A': 1})}
 
-
-@unittest.skip('debug')
-class TestColumnSearch(unittest.TestCase):
-    def test_search_column(self):
-        fcrn = """A + B -> C + D
-                  A + C -> B + D"""
-        icrn = """x1 -> x2
-                  x3 + x4 <=> x5
-                  x2 -> x6 + x8
-                  x5 -> x7
-                  x3 <=> x6
-                  x9 <=> x10
-                  x10 + x4 <=> x1 
-                  x7 -> x9 + x8"""
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        inter = {}
-        unknown = [0, 1]
-        depth = 0
-        for interp in search_column(fcrn, icrn, fs, inter, unknown, depth):
-            sicrn = subst(icrn, interp)
-            T = updateT(fcrn, sicrn, fs)
-            #for rxn, row in zip(icrn, T): 
-            #    print(rxn, row)
-            assert checkT(T)
-
-
-@unittest.skip('debug')
-class HelperTests(unittest.TestCase):
-    def test_formal_states(self):
-        state = []
-        inter = {'a': ['A'], 
-                 'b': ['B'],
-                 'x': ['A', 'B'],
-                 'y': ['A', 'A']}
-        assert list(formal_states(state, inter)) == [[]]
-
-        state = ['A']
-        inter = {'a': ['A'], 
-                 'b': ['B'],
-                 'x': ['A', 'B'],
-                 'y': ['A', 'A']}
-        minis = [['a'], ['x'], ['y']]
-        assert list(formal_states(state, inter)) == minis
-
-        state = ['A', 'A']
-        inter = {'a': ['A'], 
-                 'b': ['B'],
-                 'x': ['A', 'B'],
-                 'y': ['A', 'A']}
-        minis = [['a', 'a'], ['a', 'x'], ['x', 'x'], ['y']]
-        print(list(formal_states(state, inter)))
-
-        state = ['A', 'B']
-        inter = {'a': ['A'], 
-                 'b': ['B'],
-                 'c': ['C'],
-                 'x': ['A', 'B']}
-        minis = [['a', 'b'], ['x']]
-        minis = [['a', 'b'], ['x'], ['a', 'x']] #TODO: this is actually returned ...
-        # could it be the problem that bx is missing???
-
-        #state = Counter(state)
-        #inter = inter_counter(inter)
-        #minis = [Counter(i) for i in minis]
-
-        print(list(formal_states(state, inter)))
-
-        state = ['A', 'B', 'A']
-        inter = {'a': ['A'], 
-                 'b': ['B'],
-                 'c': ['C'],
-                 'x': ['A', 'B']}
-        minis = [['a', 'a', 'b'], ['x', 'a'], ['x', 'x']]
-
-        print(list(formal_states(state, inter)))
-
-
-    def test_subsets(self):
-        #['A']      => [[], ['A']]
-        #['A', 'A'] => [[], ['A'], ['A', 'A']
-        #['A', 'B'] => [[], ['A'], ['B'], ['A', 'B']
-
-        assert sorted(subsetsL([])) == [()]
-        assert sorted(subsetsL(['A'])) == [(), ('A',)]
-        assert sorted(subsetsL(['A', 'A'])) == [(), ('A',), ('A',), ('A', 'A')]
-        assert sorted(set(subsetsL(['A', 'A']))) == [(), ('A',), ('A', 'A')]
-        assert sorted(subsetsL(['A', 'B'])) == sorted([(), ('A',), ('B',), ('A', 'B')])
-        assert sorted(set(subsetsL(['A', 'A', 'B']))) == sorted(
-                [(), ('A',), ('B',), 
-                 ('A', 'A'), ('A', 'B'), 
-                 ('A', 'A', 'B')])
-
-    def test_enum_noweights(self):
-        # For example: 
-        #   - n = 3 for three unassinged implmentation species (x, y, z).
-        assert list(enumL(0, [])) == [[]]
-        assert list(enumL(1, [])) == [[()]]
-        assert list(enumL(2, [])) == [[(), ()]]
-        assert list(enumL(3, [])) == [[(), (), ()]]
-        assert list(enumL(4, [])) == [[(), (), (), ()]]
-
-        assert list(enumL(0, ['A'])) == [[]]
-        assert list(enumL(1, ['A'])) == [[('A',)]]
-        assert list(enumL(1, ['A', 'B', 'C'])) == [[('A', 'B', 'C')]]
-        assert sorted(enumL(2, ['A'])) == sorted([[('A',), ()], [(), ('A',)]])
-        assert sorted(enumL(3, ['A', 'B'])) == sorted([
-                 [('A',), ('B',), ()],
-                 [('A',), (), ('B',)],
-                 [('B',), ('A',), ()], 
-                 [('B',), (), ('A',)],
-                 [(), ('A',), ('B',)], 
-                 [(), ('B',), ('A',)], 
-                 [('A', 'B'), (), ()],
-                 [(), ('A', 'B'), ()],
-                 [(), (), ('A', 'B')]])
-
-        assert sorted(enumL(2, ['A', 'A', 'B'])) == sorted([ 
-                 [(), ('A', 'A', 'B')], 
-                 [('A', 'A', 'B'), ()], 
-                 [('A', 'B'), ('A',)],
-                 [('A', 'A'), ('B',)], 
-                 [('B',), ('A', 'A')], 
-                 [('A',), ('A', 'B')]])
-
-
-        assert sorted(enumL(2, ['A', 'B', 'C'])) == sorted([
-                 [('A', 'B', 'C'), ()], 
-                 [(), ('A', 'B', 'C')], 
-                 [('A',), ('B', 'C')], 
-                 [('B',), ('A', 'C')], 
-                 [('C',), ('A', 'B')], 
-                 [('A', 'B'), ('C',)], 
-                 [('A', 'C'), ('B',)],
-                 [('B', 'C'), ('A',)]])
-
-    def test_enum_weights(self):
-        assert list(enumL(0, [], weights = [])) == [[]]
-        assert list(enumL(1, [], weights = [1])) == [[()]]
-        assert list(enumL(2, [], weights = [1, 1])) == [[(), ()]]
-        assert list(enumL(3, [], weights = [1, 2, 3])) == [[(), (), ()]]
-
-        assert list(enumL(1, ['A'], weights = [1])) == [[('A',)]]
-        with self.assertRaises(SpeciesAssignmentError):
-            assert list(enumL(1, ['A'], weights = [2])) == [[()]]
-        assert list(enumL(1, ['A', 'A'], weights = [2])) == [[('A',)]]
-        assert sorted(list(enumL(2, ['A', 'A'], weights = [2, 1]))) == sorted(
-                [[('A',), ()], [(), ('A', 'A')]])
-        assert sorted(list(enumL(2, ['A', 'A'], weights = [1, 2]))) == sorted(
-                [[(), ('A',)], [('A', 'A'), ()]])
- 
-        assert sorted(list(enumL(2, ['A', 'B'], weights = [1, 2]))) == sorted(
-                [[('A', 'B'), ()]])
-
-        assert sorted(list(enumL(2, ['A', 'A', 'B'], weights = [1, 2]))) == sorted(
-                [[('A', 'A', 'B'), ()],
-                 [('B',), ('A',)]])
-
-        assert sorted(list(enumL(3, list('AAAAB'), weights = [2, 1, 2]))) == sorted([
-                    [(), ('A', 'A', 'A', 'A', 'B'), ()], 
-                    [('A',), ('A', 'A', 'B'), ()],
-                    [(), ('A', 'A', 'B'), ('A',)], 
-                    [('A', 'A'), ('B',), ()],
-                    [(), ('B',), ('A', 'A')],
-                    [('A',), ('B',), ('A',)]])
-
-    def test_same_reaction(self):
-        # literally same reaction.
-        frxn = "A + B -> C"
-        irxn = "A + B -> C"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        # trying to break the old code ... 
-        frxn = "A + B -> C + B"
-        irxn = "A + b -> B"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-        # trying to break the old code ... 
-        frxn = "A -> C + D"
-        irxn = "A + y -> C + y"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-        # trying to break the old code ... 
-        frxn = "A -> C"
-        irxn = "A + y -> C + y"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-    def test_same_reaction_products(self):
-        # product interpretation 1
-        frxn = "A + B -> C + D"
-        irxn = "A + B -> c"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        # product interpretation 2
-        frxn = "A + B -> C"
-        irxn = "A + B -> c + d"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        # product interpretation 3
-        frxn = "A + B -> C"
-        irxn = "A + B -> "
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-        # product interpretation 4
-        frxn = "A + B -> C"
-        irxn = "A + B -> C + B"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-    def test_same_reaction_reactants(self):
-        frxn = "A + B -> C"
-        irxn = "a -> C"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        # Potential null species ...
-        frxn = "A -> C + D"
-        irxn = "a + b -> C + D"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        # Potential null species ...
-        frxn = "A -> C + D"
-        irxn = "A + b -> C + D"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is True
-
-        frxn = "A + B -> C"
-        irxn = "A + B + A -> C"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-        frxn = "A + B -> C"
-        irxn = "A -> C"
-        fcrn, fs = parse_crn(frxn)
-        icrn, _ = parse_crn(irxn)
-        frxn = [Counter(part) for part in fcrn[0]]
-        irxn = [Counter(part) for part in icrn[0]]
-        assert same_reaction(irxn, frxn, fs) is False
-
-    def test_update_table_01(self):
-        fcrn = "A + B -> C"
-        icrn = "x + y -> c + d"
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-
-        assert updateT(fcrn, icrn, fs) == [[True, True]]
-
-        fcrn = "A + B -> C"
-        icrn = "A + B -> C + d"
-        fcrn, fs = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        assert updateT(fcrn, icrn, fs) == [[True, False]] 
-
-        fcrn = " -> A"
-        icrn = " -> y; y <=> z; z -> a"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        assert updateT(fcrn, icrn, fs) == [[True, True], 
-                                          [True, True],
-                                          [True, True], 
-                                          [True, True]]
-
-        fcrn = " -> A"
-        icrn = " -> A; A <=> A; A -> A"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        assert updateT(fcrn, icrn, fs) == [[True, False],
-                                          [False, True], 
-                                          [False, True],
-                                          [False, True]]
-
-        fcrn = " -> A"
-        icrn = " -> ;  <=> ;  -> A"
-        fcrn, _ = parse_crn(fcrn)
-        icrn, _ = parse_crn(icrn)
-        fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-        icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-        assert updateT(fcrn, icrn, fs) == [[False, True],
-                                          [False, True],
-                                          [False, True],
-                                          [True, False]]
-
-    def test_update_table_large(self):
-        fcrn = [[Counter({'A': 1, 'b': 1}), Counter({'c': 1})], 
-                [Counter({'b': 1}), Counter({'c': 1})],
-                [Counter({'c': 1}), Counter({'b': 1})],
-                [Counter({'b': 1}), Counter({'b': 2})]]
-        icrn = [[Counter({'A': 1}), Counter({'i7': 1})],
-                [Counter({'i7': 1}), Counter({'A': 1})],
-                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
-                [Counter({'b': 1}), Counter({'i96': 1})],
-                [Counter({'b': 1}), Counter({'i148': 1})],
-                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
-                [Counter({'b': 1}), Counter({'i96': 1})],
-                [Counter({'b': 1}), Counter({'i148': 1})],
-                [Counter({'i7': 1, 'b': 1}), Counter({'i19': 1})],
-                [Counter({'b': 1}), Counter({'i96': 1})],
-                [Counter({'b': 1}), Counter({'i148': 1})],
-                [Counter({'c': 1}), Counter({'i340': 1})], 
-                [Counter({'c': 1}), Counter({'i340': 1})], 
-                [Counter({'i19': 1}), Counter({'c': 1})],
-                [Counter({'i96': 1}), Counter({'c': 1})],
-                [Counter({'i148': 1}), Counter({'b': 2})],
-                [Counter({'i340': 1}), Counter({'b': 1})]]
-        fs = {'c', 'b', 'A'}
-        result = [[False, False, False, False, True],
-                  [False, False, False, False, True],
-                  [True,  True,  False, True,  True], 
-                  [False, True,  False, True,  True],
-                  [False, True,  False, True,  True],
-                  [True,  True,  False, True,  True], 
-                  [False, True,  False, True,  True], 
-                  [False, True,  False, True,  True],
-                  [True,  True,  False, True,  True],
-                  [False, True,  False, True,  True], 
-                  [False, True,  False, True,  True],
-                  [False, False, True,  False, True],
-                  [False, False, True,  False, True], 
-                  [True,  True,  False, False, True],
-                  [True,  True,  False, False, True], 
-                  [False, False, False, True,  True],
-                  [False, False, True,  False, True]]
-        assert updateT(fcrn, icrn, fs) == result
-
-    def test_check_table(self):
-        table = [[True, True]]
-        assert checkT(table) is True
-        table = [[False, False]]
-        assert checkT(table) is False
-        table = [[True, True],
-                 [False, False]]
-        assert checkT(table) is False
-        table = [[False, True],
-                 [True, False]]
-        assert checkT(table) is True
-        table = [[False, False],
-                 [True, True]]
-        assert checkT(table) is False
-        table = [[True, False],
-                 [True, False]]
-        assert checkT(table) is True
-        table = [[True, True, False],
-                 [False, True, False]]
-        assert checkT(table) is True
-
-
-@unittest.skip('debug')
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class BisimulationTests(unittest.TestCase):
-
     def dont_test_QingDong_thesis(self):
         # An example where the choice of the permissive checker matters ...
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
@@ -1024,7 +1189,7 @@ class BisimulationTests(unittest.TestCase):
         #    print(r)
 
 
-@unittest.skip('debug')
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ModularBisimulationTests(unittest.TestCase):
     def test_qian_roessler_modular_bisimulation(self):
         (fcrns, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True, modular = True)
