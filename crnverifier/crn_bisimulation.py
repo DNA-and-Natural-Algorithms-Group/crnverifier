@@ -15,6 +15,7 @@ import math
 from collections import Counter
 from itertools import product, permutations, combinations, chain
 
+from .utils import pretty_rxn
 from .utils import interpret as interpretL
 from .deprecated import subsets, enum 
 
@@ -27,18 +28,7 @@ class SearchDepthExceeded(Exception):
 class CRNBisimulationError(Exception):
     pass
 
-# I/O utils
-def pretty_crn(crn):
-    for rxn in crn:
-        yield '{} -> {}'.format(' + '.join(rxn[0]), ' + '.join(rxn[1]))
-
-def pretty_rxn(rxn, flag_internal = True):
-    R = list(map(lambda r: 'i{{{}}}'.format(r[1]) if isinstance(
-        r, tuple) else '{}'.format(r), rxn[0]))
-    P = list(map(lambda r: 'i{{{}}}'.format(r[1]) if isinstance(
-        r, tuple) else '{}'.format(r), rxn[1]))
-    return '{} -> {}'.format(' + '.join(R), ' + '.join(P))
-
+# Conversion between list and counter objects.
 def rl(rxn):
     return [list(part.elements()) for part in rxn]
 
@@ -55,9 +45,8 @@ def inter_list(inter):
     # return interpretations of the format: inter[str] = list
     return {k: list(v.elements()) for k, v in inter.items()}
 
+# Conversion between internal and external representation of implementation species.
 def deformalize(k, fs):
-    # Do not confuse formal species with same-named species in the
-    # implementation CRN.
     return f'i{{{k}}}' if k in fs else k
 
 def formalize(intrp):
@@ -70,29 +59,30 @@ def formalize(intrp):
             intr[sp] = intrp[sp]
     return intr
 
+# Utils for list based multiset operations.
 def subsetsL(x):
     """ Generate all (uniqe) multi-subsets of a list x. """
     return chain(*[combinations(x, l) for l in range(len(x), -1, -1)])
 
-def subtractL(l2, l1, strict = True):
-    """Sustract lists: l2 - l1."""
-    l2 = l2[:]
-    for el in l1:
+def subtractL(l1, l2, strict = True):
+    """ Returns a new list: l1 - l2. """
+    l1 = l1[:]
+    for el in l2:
         try:
-            l2.remove(el)
+            l1.remove(el)
         except ValueError as err:
             if strict:
                 raise err
-    return l2
+    return l1
 
 def is_contained(a, b):
-        # True if multiset a is contained in multiset b.
-        b = b[:]
-        try:
-            [b.remove(s) for s in a]
-        except ValueError as err:
-            return False
-        return True
+    """ bool: True if a list a is fully contained in list b. """
+    b = b[:]
+    try:
+        [b.remove(s) for s in a]
+    except ValueError as err:
+        return False
+    return True
 
 def enumL(n, l, weights = None):
     """ Returns combinations to assign elements of list l to n variables. """
@@ -751,7 +741,8 @@ def atomic_condition(inter, fs):
     """
     return all(any(set(f) == set(v.elements()) for v in inter.values()) for f in fs)
 
-def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0, permcheck = 'graphsearch'):
+def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0, 
+               mode = 'time-efficient', permcheck = 'graphsearch'):
     """ Find full interpretations matching every irxn to one frxn or trxn.
 
     This "row search" finds all valid combinations of 
@@ -763,6 +754,7 @@ def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0, permcheck = 'grap
     reaction is introduced. 
 
     """
+    assert mode in ('time-efficient', 'space-efficient')
     if moves is None:
         moves = set()
 
@@ -814,11 +806,14 @@ def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0, permcheck = 'grap
                 for (inext, depth, imove) in later[n]:
                     if imove in moves:
                         continue
-                    moves.add(imove)
+                    if mode == 'time-efficient':
+                        moves.add(imove)
                     try:
                         for ir, mr in search_row(fcrn, icrn, fs, inext, 
-                                                             moves, depth + 1, 
-                                                             permcheck):
+                                                 moves = moves, 
+                                                 depth = depth + 1, 
+                                                 mode = mode, 
+                                                 permcheck = permcheck):
 
                             moves |= mr
                             yield ir, mr
@@ -1005,40 +1000,6 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
     assert len(later) == 0
     return
 
-def find_bisimulation(fcrn, icrn, fs, inter, permcheck):
-    """
-    fcrn, icrn, fs, unknown and inter, permcheck remain constant, i think.
-
-    Assumes that icrn and fcrn have diffferent species names, unless they are 
-    the same specis!
-
-    Depth will update, state will update.
-
-    The inner icrn/fcrn/inter format layer
-
-    """
-    # push the data structure further in ...
-    fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
-    icrn = [[Counter(part) for part in rxn] for rxn in icrn]
-    intrp = inter_counter(inter)
-
-    log.info(f'Searching for bisimulation')
-    found = False
-    for parti in search_column(fcrn, icrn, fs, intrp):
-        try:
-            for bisim in search_row(fcrn, icrn, fs, parti, permcheck = permcheck):
-                log.debug(bisim)
-                if found is False:
-                    yield True
-                    found = True
-                yield inter_list(bisim)
-        except SpeciesAssignmentError:
-            continue
-
-    if not found:
-        yield False
-        yield None
-
 def is_modular(bisim, icrn, common_is, common_fs):
     """ Check if a bisimulation satisfies the modularity condition.
 
@@ -1145,6 +1106,7 @@ def is_modular(bisim, icrn, common_is, common_fs):
 def crn_bisimulations(fcrn, icrn, 
                       interpretation = None,
                       formals = None, 
+                      searchmode = 'time-efficient',
                       permissive = 'graphsearch',
                       permissive_depth = None):
     """ Iterate over all crn bisimulations.
@@ -1177,6 +1139,8 @@ def crn_bisimulations(fcrn, icrn,
     Outputs:
         Yields all correct CRN bisimulations, or None if no CRN bisimulation exists.
     """
+    if searchmode not in ('time-efficient', 'space-efficient'):
+        raise CRNBisimulationError(f'Unsupported CRN-bisimulation search mode: {searchmode}')
     if interpretation is None:
         interpretation = dict()
     if formals is None:
@@ -1184,7 +1148,7 @@ def crn_bisimulations(fcrn, icrn,
 
     log.debug('Testing:')
     log.debug('Original formal CRN:')
-    [log.debug('  {}'.format(r)) for r in pretty_crn(fcrn)]
+    [log.debug('  {}'.format(pretty_rxn(r))) for r in fcrn]
     log.debug('Original implementation CRN:')
     [log.debug('  {}'.format(pretty_rxn(r))) for r in icrn]
     log.debug(f'Formal species: {formals}')
@@ -1213,20 +1177,25 @@ def crn_bisimulations(fcrn, icrn,
         permissive = [permissive, permissive_depth]
     log.debug(f'Permissive argument: {permissive}')
 
-    out = find_bisimulation(fcrn, icrn, 
-                            set(formals), 
-                            inter, 
-                            permissive)
+    # Last point to move to internal data structures ...
+    fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
+    icrn = [[Counter(part) for part in rxn] for rxn in icrn]
+    intrp = inter_counter(inter)
 
-    correct = next(out)
-    if correct:
-        for bisim in out:
-            yield formalize(bisim)
-    else:
-        yield None
+    log.info(f'Searching for bisimulation.')
+    for parti in search_column(fcrn, icrn, formals, intrp):
+        try:
+            for bisim in search_row(fcrn, icrn, formals, parti, 
+                                    mode = searchmode,
+                                    permcheck = permissive):
+                yield inter_list(formalize(bisim))
+        except SpeciesAssignmentError:
+            continue
+    return
 
 def modular_crn_bisimulation_test(fcrns, icrns, formals, 
                                   interpretation = None, 
+                                  searchmode = 'time-efficient',
                                   permissive = 'graphsearch',
                                   permissive_depth = None):
     """ Check if a modulular CRN bisimulation exists. 
@@ -1268,28 +1237,29 @@ def modular_crn_bisimulation_test(fcrns, icrns, formals,
         # Prepare inputs for crn bisimulation of this module
         mfs = {k for k in formals if e in fspc[k]}
         minter = {k: v for k, v in inter.items() if e in ispc[k]}
+        found = False
         for bisim in crn_bisimulations(fcrn, icrn, 
                                        interpretation = minter, 
                                        formals = mfs, 
+                                       searchmode = searchmode,
                                        permissive = permissive, 
                                        permissive_depth = permissive_depth):
-            if bisim is None:
-                break
             # Get all formal and implementation species that are in
             # common with at least one other module.
             fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
             isc = {i for i, m in ispc.items() if e in m and len(m) > 1}
             if is_modular(bisim, icrn, isc, fsc):
-                #TODO: re-insert the iterate part here ...
+                found = True
                 inter.update(bisim)
-                break
+                break # TODO: maybe re-insert the iterate part here ...
             log.debug(f'Skipping non-modular bisimulation: {bisim}')
-        else:
-            return [False, None]
-    return [True, inter]
+        if not found:
+            return False, None
+    return True, inter
 
 def crn_bisimulation_test(fcrn, icrn, formals, 
                           interpretation = None,
+                          searchmode = 'time-efficient',
                           permissive = 'graphsearch',
                           permissive_depth = None):
     """ Backward compatible CRN bisimulation interface.
@@ -1303,11 +1273,12 @@ def crn_bisimulation_test(fcrn, icrn, formals,
     iterator = crn_bisimulations(fcrn, icrn, 
                                  interpretation = interpretation,
                                  formals = formals, 
+                                 searchmode = searchmode,
                                  permissive = permissive,
                                  permissive_depth = permissive_depth)
 
-    bisim = next(iterator)
-    if bisim is not None:
-        return [True, bisim]
-    else:
-        return [False, None]
+    try:
+        bisim = next(iterator)
+        return True, bisim
+    except StopIteration:
+        return False, None

@@ -101,16 +101,14 @@ class JustCuriousTests(unittest.TestCase):
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        assert len(bisims) == 1
-        assert bisims[0] is None
+        assert len(bisims) == 0
 
         fcrn = " -> A"
         icrn = " y -> a"
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        assert len(bisims) == 1
-        assert bisims[0] is None
+        assert len(bisims) == 0
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class HelperTests(unittest.TestCase):
@@ -732,7 +730,7 @@ class TestSearchSpace(unittest.TestCase):
 
         # does not pass permissive.
         bisims = list(crn_bisimulations(fcrn, icrn))
-        assert len(bisims) == 1 # None, this may change.
+        assert len(bisims) == 0
 
     def test_2f_2i(self):
         fcrn = "A + B -> C + D; C + D -> E + F"
@@ -1150,7 +1148,7 @@ class ModularBisimulationTests(unittest.TestCase):
 
 @unittest.skipIf(SKIP_SLOW or SKIP_DEBUG, "skipping tests for debugging")
 class SlowBisimulationTests(unittest.TestCase):
-    def test_QingDong_thesis_i1_gs(self):
+    def test_QingDong_crn6_i1_gs(self):
         # NOTE: around 3 minutes
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
@@ -1165,7 +1163,7 @@ class SlowBisimulationTests(unittest.TestCase):
                                      permissive = 'graphsearch')
         self.assertTrue(v)
 
-    def test_QingDong_thesis_i1_rs(self):
+    def test_QingDong_crn6_i1_rs(self):
         # NOTE: around 3 minutes
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
@@ -1179,8 +1177,8 @@ class SlowBisimulationTests(unittest.TestCase):
                                      permissive = 'reactionsearch')
         self.assertTrue(v)
 
-    def dtest_QingDong_thesis_i1_ls(self):
-        # TODO: takes more than 15 min
+    def dtest_QingDong_crn6_i1_ls(self):
+        # TODO: does not finish ... probably a bug!
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter_01 = {'i778': ['Y'],
@@ -1209,18 +1207,20 @@ class SlowBisimulationTests(unittest.TestCase):
         self.assertTrue(v)
 
     def dtest_QingDong_crn6_ls(self):
-        # TODO: More than 15 minutes!
+        # TODO: test again after i1 terminates.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
         self.assertTrue(v)
 
     def dtest_qian_roessler_full(self):
-        # TODO: How long approximately? -- KILLED / OUT OF MEMORY
+        # TODO: KILLED / OUT OF MEMORY
+        # Seems like "space-efficient still takes quite some memory, so we'll
+        # have to debug there.
         (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
         (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
         partial = {sp: [sp] for sp in fs}
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial)
+        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, searchmode = 'space-efficient')
         self.assertTrue(v)
 
 
