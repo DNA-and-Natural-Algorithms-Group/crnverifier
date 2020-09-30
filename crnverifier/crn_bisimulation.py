@@ -76,7 +76,7 @@ def subtractL(l1, l2, strict = True):
     return l1
 
 def is_contained(a, b):
-    """ bool: True if a list a is fully contained in list b. """
+    """ bool: True if list a is fully contained in list b. """
     b = b[:]
     try:
         [b.remove(s) for s in a]
@@ -222,12 +222,6 @@ def subst(crn, intrp):
     # interpretation.
     return [[interpret(j, intrp) for j in rxn] for rxn in crn]
 
-def check_delimiting(fcrn, icrn, fs, inter):
-    # TODO: untested and not used, just to keep the idea ...
-    sicrn = subst(icrn, inter)
-    T = updateT(fcrn, sicrn, fs)
-    return checkT(T)
-
 def checkT(T):
     """ Check (partial) interpretation for the delimiting condition.
 
@@ -340,110 +334,6 @@ def formal_states(fstate, inter, counter = False):
                                                     counter):
                     yield ([k] + out) if not counter else (Counter({k:1}) + out)
 
-def permissive_graphsearch(fcrn, icrn, fs, intrp, 
-                           permissive_depth = None):
-
-    sicrn = subst(icrn, intrp)
-    T = updateT(fcrn, sicrn, fs)
-    assert checkT(T) # Assuming this has been checked before calling permissive.
-
-    nulls = [k for k in intrp if not len(list(intrp[k]))]
-    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
-
-    #tr = [] # trivial reactions
-    #for rxn in icrn:
-    #    iR = interpretL(rxn[0], intrp) 
-    #    iP = interpretL(rxn[1], intrp) 
-    #    if sorted(iR) == sorted(iP):
-    #        tr.append(rxn)
-
-    #if trivial_rxns != tr:
-    #    print(trivial_rxns)
-    #    print(tr)
-
-
-    for i, frxn in enumerate(fcrn):
-        # build fr for this formal reaction
-        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
-
-        """ Check whether every implementation of state "formal" can implement
-        the given formal reaction.
-        This function stores for each state the list of states it can reach.
-         -- w/o null species (except those producible by loops)
-        """
-        points = list([[x,set([]),[]] for x in formal_states(list(frxn[0].elements()), 
-                                                             inter_list(intrp),
-                                                             counter = True)])
-        # At this point, "points" contains an exhaustive and sufficient list of
-        # possible initial implementation states in which the current formal
-        # reaction #i must be able to fire (via a series of trivial reactions),
-        # Note that we will only want to test states in "points" that interpret
-        # to a state in which #i can fire.
-
-        # points[i][0] is the ith implementation state
-        # points[i][1] is all null species loopable from that state
-        # points[i][2][j] is True if points[j][0] is known to be reachable
-        #  (from state i without initial null species)
-        # exception: points[i][2] is True if a formal reaction is known to
-        #  be reachable from state i
-
-        rngl = list(range(len(points))) # same here...
-        for i in rngl:
-            points[i][2] = len(points)*[False]
-
-        changed, depth = True, 0
-        while changed and (permissive_depth is None or depth < permissive_depth):
-            changed, depth = False, depth + 1
-            for i in rngl:
-                if points[i][2] is not True:
-                    for rx in fr:
-                        if points[i][1].issuperset(rx[0] - points[i][0]):
-                            points[i][2] = True
-                            changed = True
-                            break
-
-                    if points[i][2] is True:
-                        continue
-
-                    for rx in trivial_rxns:
-                        if points[i][1].issuperset(rx[0] - points[i][0]):
-                            left = points[i][0] - rx[0]
-                            after = left + rx[1]
-                            for j in rngl:
-                                if msleq(points[j][0],after):
-                                    if points[j][2] is True:
-                                        points[i][2] = True
-                                        changed = True
-                                        break
-
-                                    if points[j][2][i]:
-                                        s = points[j][1].union(
-                                            [x for x in left if x in nulls])
-                                        if not s <= points[i][1]:
-                                            points[i][1] |= s
-                                            changed = True
-
-                                    if not points[i][2][j]:
-                                        points[i][2][j] = True
-                                        changed = True
-
-                                    for k in rngl:
-                                        if (not points[i][2][k]) \
-                                           and points[j][2][k]:
-                                            points[i][2][k] = True
-                                            changed = True
-
-                        if points[i][2] is True:
-                            break
-
-        if permissive_depth and changed:
-            raise SearchDepthExceeded(f'Permissive checker stopped at {depth=}')
-
-        if not all([p[2] is True for p in points]):
-            # failed states: 
-            return False, None
-    return True, depth
-        
 def check_permissive(fcrn, icrn, fs, intrp, permcheck):
     """ Check the permissive condition.
     
@@ -462,10 +352,6 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
     else:
         permissive_depth = None
     log.debug(f'Checking permissive condition using {permcheck=} {permissive_depth=}.')
-
-    if permcheck == 'graphsearch':
-        return permissive_graphsearch(fcrn, icrn, fs, intrp, 
-                                      permissive_depth)
 
     sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
@@ -734,10 +620,124 @@ def find_one_trivial(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
                 yield parti
     return
 
-def atomic_condition(inter, fs):
+def check_permissive_graphsearch(fcrn, icrn, fs, intrp):
+    """ The 'graphsearch' algorithm to check the permissive condition. 
+
+    Checks whether every implementation of a formal state that can react in the
+    formal CRN by reaction r can also react in the implementation CRN with a 
+    reaction that interprets to r.
+
+    """
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+    assert checkT(T) # assuming this has been checked before calling permissive.
+    assert all(fs | set(v) == fs for k, v in intrp.items())
+
+    # Convert to list format.
+    fcrn = [rl(frxn) for frxn in fcrn]
+    icrn = [rl(irxn) for irxn in icrn]
+    sicrn = [rl(sirxn) for sirxn in sicrn]
+    inter = inter_list(intrp)
+
+    log.debug(f'The implementation CRN:\n' + '\n'.join(
+        [f'{e} {t=} {pretty_rxn(sicrn[e])} ({pretty_rxn(icrn[e])})' \
+                for e, t in enumerate(T)]))
+    log.debug(f'{inter=}')
+
+    # Potential null species.
+    nulls = set([k for k, v in inter.items() if len(v) == 0])
+
+    # Those are all remaining trivial reactions.
+    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
+
+    max_depth = 0
+    for i, frxn in enumerate(fcrn):
+        # The implementation reactions for this formal reaction.
+        implementations = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+        # All implementation states which must permit the formal reaction.
+        fstates = list(map(tuple, map(sorted, formal_states(frxn[0], inter))))
+        done = set() # set of species known to implement the current formal rxn.
+        todo = {fstate: [set(), set()] for fstate in fstates}
+        # todo[fstate] = [set(nulls), set(reachable)]
+
+        log.debug(f'Testing formal reaction "{pretty_rxn(frxn)}" with {fstates=}')
+        changed, depth = True, 0
+        while changed:
+            changed, depth = False, depth + 1
+            for fstate in fstates:
+                if fstate in done:
+                    continue
+                for irxn in implementations:
+                    # If the implementation state can implement the formal reaction.
+                    if set(subtractL(irxn[0], fstate, False)) <= todo[fstate][0]: 
+                        done.add(fstate)
+                        del todo[fstate]
+                        changed = True
+                        break
+                if fstate in done:
+                    continue
+                for irxn in trivial_rxns:
+                    # If the implementation state can implement the trivial reaction.
+                    if set(subtractL(irxn[0], fstate, False)) <= todo[fstate][0]: 
+                        # remove the reactants from the implementation state.
+                        nstate = subtractL(list(fstate), irxn[0], False) + irxn[1]
+                        for fstate2 in fstates:
+                            # if one of the other implementation states is reachable
+                            if is_contained(fstate2, nstate):
+                                if fstate2 in done:
+                                    done.add(fstate)
+                                    del todo[fstate]
+                                    changed = True
+                                    break
+                                if fstate in todo[fstate2][1]: # I assume its a loop?
+                                    s = todo[fstate2][0] | (set(nstate) & nulls)
+                                    if not s <= todo[fstate][0]:
+                                        todo[fstate][0] |= s
+                                        changed = True
+                                if fstate2 not in todo[fstate][1]:
+                                    todo[fstate][1].add(fstate2)
+                                    changed = True
+                                if not (todo[fstate2][1] <= todo[fstate][1]):
+                                    todo[fstate][1] |= todo[fstate2][1]
+                                    changed = True
+                    if fstate in done:
+                        break
+        if todo: 
+            return False, fstates
+        if max_depth < depth: 
+            max_depth = depth
+    return True, max_depth
+        
+def passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
+    """
+    """
+    if len(permcheck) == 2:
+        print('DEPRECATED ARGUMENT')
+        permcheck = permcheck[0]
+    log.debug(f'Checking permissive condition using {permcheck=}.')
+
+    if permcheck == 'graphsearch':
+        passes, info = check_permissive_graphsearch(fcrn, icrn, fs, intrp)
+    else:
+        passes, info = check_permissive(fcrn, icrn, fs, intrp, permcheck = permcheck)
+    return passes, info
+
+def passes_delimiting_condition(fcrn, icrn, fs, inter):
+    """ Tests an interpretation for the delimiting condition.
+
+    Note that this function is actually never used, because typically you want
+    to keep the table T. In any case, it is tested and yields the correct
+    result.
+    """
+    sicrn = subst(icrn, inter)
+    T = updateT(fcrn, sicrn, fs)
+    return checkT(T)
+
+def passes_atomic_condition(inter, fs):
     """ Tests an interpretation for the atomic condition.
 
-    For every formal species there exists an implementation species which interprets to it.
+    For every formal species there exists an implementation species which
+    interprets to it.  
     """
     return all(any(set(f) == set(v.elements()) for v in inter.values()) for f in fs)
 
@@ -773,14 +773,13 @@ def search_row(fcrn, icrn, fs, intrp, moves = None, depth = 0,
     # same set of implementation species!
     unknown = {tuple(sorted((set(sirxn[0]) | set(sirxn[1])) - fs)): i \
                 for i, sirxn in enumerate(sicrn)} 
-    log.debug(f'{unknown=}')
     unknown = [v for k, v in unknown.items() if len(k)]
 
     if unknown == []:
-        if not atomic_condition(intrp, fs):
+        if not passes_atomic_condition(intrp, fs):
             log.debug(f'Atomic condition not satisfied.')
             raise SpeciesAssignmentError('Atomic condition not satisfied.')
-        correct, info = check_permissive(fcrn, icrn, fs, intrp, permcheck)
+        correct, info = passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck)
         if correct:
             log.debug(f'Permissive condition satisfied ({info=}).')
             yield (intrp, moves) if depth > 0 else intrp

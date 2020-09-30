@@ -23,6 +23,10 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           same_reaction, 
                                           updateT, 
                                           checkT,
+                                          # ConditionTests
+                                          passes_atomic_condition,
+                                          passes_delimiting_condition,
+                                          passes_permissive_condition,
                                           # Individual test classes
                                           search_column, 
                                           search_row, 
@@ -63,8 +67,11 @@ class JustCuriousTests(unittest.TestCase):
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        assert len(bisims) == 1
-        self.assertDictEqual(bisims[0], {'y': ['A'], 'a': ['A']})
+        b1 = {'a': ['A'], 'y': ['A']}
+        b2 = {'a': ['A'], 'y': []}
+        assert len(bisims) == 2
+        assert b1 in bisims
+        assert b2 in bisims
 
     def test_me_quickly_03(self):
         fcrn = " -> A"
@@ -72,12 +79,15 @@ class JustCuriousTests(unittest.TestCase):
         fcrn, _ = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
-        if len(bisims) != 1:
+        b1 = {'a': ['A'], 'y': ['A'], 'z': ['A']}
+        b2 = {'a': ['A'], 'y': [], 'z': []}
+        if len(bisims) != 2:
             print('FAILURE:')
             for e, b in enumerate(bisims):
                 print(e, b)
-        self.assertDictEqual(bisims[0], {'a': ['A'], 'y': ['A'], 'z': ['A']})
-        #assert len(bisims) == 1
+        assert len(bisims) == 2
+        assert b1 in bisims
+        assert b2 in bisims
 
     def test_me_quickly_04(self):
         fcrn = "A -> "
@@ -91,9 +101,9 @@ class JustCuriousTests(unittest.TestCase):
                 print(e, b)
         b1 = {'a': ['A'], 'y': [], 'z': []}
         b2 = {'a': ['A'], 'y': ['A'], 'z': ['A']}
+        assert len(bisims) == 2
         assert b1 in bisims
         assert b2 in bisims
-        #assert len(bisims) == 2
 
     def test_me_quickly_false(self):
         fcrn = "A + B -> C"
@@ -447,6 +457,116 @@ class HelperTests(unittest.TestCase):
         table = [[True, True, False],
                  [False, True, False]]
         assert checkT(table) is True
+
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+class ConditionTests(unittest.TestCase):
+    def test_atomic_01(self):
+        fs = set(['A', 'B', 'C'])
+        inter = {'a' : ['B'],
+                 'B' : ['A'],
+                 'c' : ['C']}
+        inter = inter_counter(inter)
+        assert passes_atomic_condition(inter, fs)
+
+    def test_delimiting_01(self):
+        fcrn = "A + B -> C"
+        icrn = "a + b -> c"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['B'],
+                 'b' : ['A'],
+                 'c' : ['C']}
+        inter = inter_counter(inter)
+        assert passes_delimiting_condition(fcrn, icrn, fs, inter)
+
+    def test_permissive_01(self):
+        fcrn = "A + B -> C"
+        icrn = "a + b -> c"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['B'],
+                 'b' : ['A'],
+                 'c' : ['C']}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert passes
+
+    def test_permissive_02(self):
+        fcrn = " -> A"
+        icrn = "x -> a"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['A'],
+                 'x' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert not passes
+
+    def test_permissive_03(self):
+        fcrn = " -> A"
+        icrn = " -> x; x -> a"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['A'],
+                 'x' : ['A']}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert passes
+
+        inter = {'a' : ['A'],
+                 'x' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert passes
+
+    def test_permissive_04(self):
+        fcrn = "B -> A"
+        icrn = "b -> b + x; b + 3x -> a"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['A'],
+                 'b' : ['B'],
+                 'x' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert passes
+
+    def test_permissive_05(self):
+        fcrn = "A -> B"
+        icrn = "x -> y; y -> x + z; x + 3z -> b"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'x' : ['A'],
+                 'b' : ['B'],
+                 'y' : ['A'],
+                 'z' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert passes
+
+    def test_permissive_06(self):
+        fcrn = "A + B -> C + D"
+        icrn = "a + b -> c + d; d + c -> e + f"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter={'a': ['B'], 'b': ['A'], 'c': [], 'd': ['A', 'B'], 'e': ['C'], 'f': ['D']}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        assert not passes
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestColumnSearch(unittest.TestCase):
@@ -815,8 +935,7 @@ class FastBisimulationTests(unittest.TestCase):
 
         v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
                                      interpretation = partial,
-                                     permissive = 'reactionsearch',
-                                     permissive_depth = 8)
+                                     permissive = 'reactionsearch')
         self.assertTrue(v)
 
         # A function that does not say so, should not modify its arguments.
