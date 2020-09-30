@@ -30,7 +30,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Individual test classes
                                           search_column, 
                                           search_row, 
-                                          is_modular, 
+                                          passes_modularity_condition, 
                                           # Just used
                                           inter_counter,
                                           inter_list,
@@ -555,6 +555,9 @@ class ConditionTests(unittest.TestCase):
         inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
         assert passes
+        print(passes_permissive_condition(fcrn, icrn, fs, inter))
+        print(passes_permissive_condition(fcrn, icrn, fs, inter, 'loopserach'))
+        print(passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch'))
 
     def test_permissive_06(self):
         fcrn = "A + B -> C + D"
@@ -1219,11 +1222,11 @@ class ModularBisimulationTests(unittest.TestCase):
         isc = {'a', 'b', 'c'}
 
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['C'], 'w3': [], 'w4': []}
-        assert is_modular(bisim, module, isc, fsc) is True
+        assert passes_modularity_condition(bisim, module, isc, fsc) is True
         bisim = {'a': ['B'], 'b': ['A'], 'c': ['C'], 'i1': ['B'], 'i2': ['C'], 'w3': [], 'w4': []}
-        assert is_modular(bisim, module, isc, fsc) is True
+        assert passes_modularity_condition(bisim, module, isc, fsc) is True
         bisim = {'a': ['A'], 'b': ['B'], 'c': ['C'], 'i1': ['A'], 'i2': ['A','B'], 'w3': [], 'w4': []}
-        assert is_modular(bisim, module, isc, fsc) is False
+        assert passes_modularity_condition(bisim, module, isc, fsc) is False
 
     def test_modularity_example_02(self):
         module = """ b <=> e1
@@ -1235,24 +1238,24 @@ class ModularBisimulationTests(unittest.TestCase):
         isc = {'b'}
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
-        assert is_modular(minter, module, isc, fsc) is True
+        assert passes_modularity_condition(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': [], 'e3': [], 'e4': ['B'], 'e5': []} 
-        assert is_modular(minter, module, isc, fsc) is True
+        assert passes_modularity_condition(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B', 'B'], 'e2': [], 'e3': [], 'e4': [], 'e5': []} 
-        assert is_modular(minter, module, isc, fsc) is False
+        assert passes_modularity_condition(minter, module, isc, fsc) is False
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': []} 
-        assert is_modular(minter, module, isc, fsc) is False
+        assert passes_modularity_condition(minter, module, isc, fsc) is False
         isc = {'b', 'e2'}
-        assert is_modular(minter, module, isc, fsc) is True
+        assert passes_modularity_condition(minter, module, isc, fsc) is True
         isc = {'b', 'e5'}
         minter = {'b': ['B'], 'e1': [], 'e2': [], 'e3': [], 'e4': [], 'e5': ['B']} 
-        assert is_modular(minter, module, isc, fsc) is True
+        assert passes_modularity_condition(minter, module, isc, fsc) is True
 
         minter = {'b': ['B'], 'e1': ['B'], 'e2': ['B'], 'e3': [], 'e4': [], 'e5': ['B']} 
-        assert is_modular(minter, module, isc, fsc) is False
+        assert passes_modularity_condition(minter, module, isc, fsc) is False
 
     def test_modularity_example_03(self):
         module = """
@@ -1263,7 +1266,7 @@ class ModularBisimulationTests(unittest.TestCase):
         module, _ = parse_crn(module)
         fsc, isc = {'A'}, {'a'}
         inter = {'a': ['A'], 'e1': ['A', 'A'], 'e6': ['A']}
-        assert is_modular(inter, module, isc, fsc) is True
+        assert passes_modularity_condition(inter, module, isc, fsc) is True
 
 @unittest.skipIf(SKIP_SLOW or SKIP_DEBUG, "skipping tests for debugging")
 class SlowBisimulationTests(unittest.TestCase):

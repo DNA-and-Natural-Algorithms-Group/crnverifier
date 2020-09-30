@@ -29,9 +29,168 @@ def interpret(s, intrp):
 def interleq(x, y, intrp):
     # True if m(x) <= m(y) with m given by interpretation intrp
     return msleq(interpret(x,intrp),interpret(y,intrp))
+def solve_contejean_devie(a):
+    """ Algorithm from Contejean & Devie 1994.
+
+    Find a non-negative and non-trivial integer solution x of the equation ax=0.
+    Return [] when there is no such solution.
+    """
+    q = len(a[0])
+    
+    def multi(x, y):
+        s = 0
+        for i in range(len(x)):
+            s = s + x[i] * y[i]
+        return s
+    
+    def sub(x):
+        s = []
+        for i in range(len(a)):
+            s.append(multi(a[i],x))
+        return s
+    
+    def Min(b,t):
+        if not b:
+            return True
+        else:
+            for i in range(len(b)):
+                r = True;
+                for j in range(q):
+                    r = r and (b[i][j] <= t[j])
+                if r:
+                    return False
+            return True
+        
+    e = []
+    for i in range(q):
+        e.append([])
+        for j in range(len(a)):
+            e[i].append(a[j][i])     
+    p = []
+    frozen = []
+    for i in range(q):
+        p.append([1 if j == i else 0 for j in range(q)])
+        frozen.append([i == q-1 or j < i for j in range(q)])
+    zero = [0 for i in range(len(a))]
+    zero1 = [0 for i in range(q)]
+    b = []
+    while p:
+        t = p.pop()
+        if sub(t) == zero:
+            if t[q-1] == 1:
+                return t    # just get the first solution, not all solutions (unlike C&D 1994).
+            b.append(list(t))
+            frozen.pop()
+        else:
+            f = frozen.pop()
+            for i in range(q):
+                if not f[i] and (multi(sub(t), e[i]) < 0):
+                    tmp = list(t)
+                    tmp[i] += 1
+                    if Min(b, tmp):
+                        if i == q-1:
+                            f[i] = True
+                        p.append(tmp)
+                        frozen.append(list(f))
+                    f[i] = True
+    return []
+
+def solve(a):
+    # wrapper method to solve a system of equations with method of choice
+    return solve_contejean_devie(a)
+
 
 
 # DEPRECATED STATS HERE
+def find_one_trivial(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
+
+    # All unknown implementation reactions (i.e. those with some unknown
+    # species) must be trivial.  Build the matrix for the the "solve" function,
+    # to see whether the interpretation can be completed as required.  Also
+    # note that "unknow" is not used; the unknown species are recalculated here
+    # because "unknow" contains only those implementation reactions that have
+    # not been solved by the row search, but other rows (i.e. implementation
+    # reactions) may be implicitly solved by the partial interpretation.
+    sicrn = subst(icrn, intrp)
+
+    # List of implementation reactions with an unknown species.
+    unknown = [i for i, irxn in enumerate(sicrn) if len(set(irxn[0]) - fs) or \
+                                                   len(set(irxn[1]) - fs)]
+    # All species that remain unknown in current (partial) interpretation.
+    unassigned = set(s for irxn in sicrn for s in set(irxn[0]) - fs | set(irxn[1]) - fs)
+    
+    # Find species that do not satisfy atomic condition
+    atoms_needed = list(fs - set().union(*[set(a) for a in intrp.values() if sum(a.values()) == 1]))
+
+    log.info(f'Trivial reaction solver: {unknown=}')
+    log.info(f'Missing atoms: {atoms_needed}')
+    log.info(f'Unknown species: {unassigned}')
+
+    for assign in permutations(unassigned, len(atoms_needed)): # works even if l == 0
+        # each assign is a tuple of implementation species to be interpreted as
+        # exactly one formal species, matching the order of atoms_needed.
+        log.debug(f'{assign=}')
+
+        parti = intrp.copy()
+        for i, a in enumerate(atoms_needed):
+            assert assign[i] not in parti
+            parti[assign[i]] = Counter({a: 1})
+        log.debug(f'{parti=}')
+
+        sicrn = subst(icrn, parti)
+        T = updateT(fcrn, sicrn, fs)
+        if (not checkT(T)) or any([T[i][-1] is False for i in unknown]):
+            continue
+
+        ulist = [sp for sp in unassigned if sp not in assign]
+        log.debug(f'{ulist=}')
+        if not ulist:
+            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
+            if out:
+                yield parti
+            continue
+
+        # A mini table. 
+        # For every unknown implementation reaction make a list:
+        #   - for each unassigend species store #ur - #up
+        a = []
+        for i in unknown:
+            irxn = sicrn[i]
+            log.debug(irxn)
+            # A list of #ur - #up
+            a.append([irxn[0][u]-irxn[1][u] for u in ulist] + [0])
+        log.debug(f'{a=}')
+
+        # prepare for adding species to the counter ...
+        for u in ulist:
+            parti[u] = Counter()
+        log.debug(f'{parti=}')
+
+        check = True
+        for fsp in fs:
+            log.warning(f'{fsp=}')
+            for e, i in enumerate(unknown):
+                irxn = sicrn[i]
+                # A list of #fsr - #fsp
+                a[e][-1] = irxn[0][fsp]-irxn[1][fsp]
+            log.debug(f'{a=}')
+
+            # Alright, this can find one, but only one solution... 
+            s = solve(a)
+            log.debug(f'{s=}')
+            if s == []:
+                check = False
+                break
+            else:
+                for j, u in enumerate(ulist):
+                    parti[u][fsp] = s[j]
+        if check:
+            for isp in ulist:
+                parti[isp] = parti[isp] + Counter()
+            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
+            if out:
+                yield parti
+    return
 
 def moduleCond(module, formCommon, implCommon, intrp):
     """

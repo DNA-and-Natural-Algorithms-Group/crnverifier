@@ -126,76 +126,6 @@ def enumL(n, l, weights = None):
             continue
     return
 
-def solve_contejean_devie(a):
-    """ Algorithm from Contejean & Devie 1994.
-
-    Find a non-negative and non-trivial integer solution x of the equation ax=0.
-    Return [] when there is no such solution.
-    """
-    q = len(a[0])
-    
-    def multi(x, y):
-        s = 0
-        for i in range(len(x)):
-            s = s + x[i] * y[i]
-        return s
-    
-    def sub(x):
-        s = []
-        for i in range(len(a)):
-            s.append(multi(a[i],x))
-        return s
-    
-    def Min(b,t):
-        if not b:
-            return True
-        else:
-            for i in range(len(b)):
-                r = True;
-                for j in range(q):
-                    r = r and (b[i][j] <= t[j])
-                if r:
-                    return False
-            return True
-        
-    e = []
-    for i in range(q):
-        e.append([])
-        for j in range(len(a)):
-            e[i].append(a[j][i])     
-    p = []
-    frozen = []
-    for i in range(q):
-        p.append([1 if j == i else 0 for j in range(q)])
-        frozen.append([i == q-1 or j < i for j in range(q)])
-    zero = [0 for i in range(len(a))]
-    zero1 = [0 for i in range(q)]
-    b = []
-    while p:
-        t = p.pop()
-        if sub(t) == zero:
-            if t[q-1] == 1:
-                return t    # just get the first solution, not all solutions (unlike C&D 1994).
-            b.append(list(t))
-            frozen.pop()
-        else:
-            f = frozen.pop()
-            for i in range(q):
-                if not f[i] and (multi(sub(t), e[i]) < 0):
-                    tmp = list(t)
-                    tmp[i] += 1
-                    if Min(b, tmp):
-                        if i == q-1:
-                            f[i] = True
-                        p.append(tmp)
-                        frozen.append(list(f))
-                    f[i] = True
-    return []
-
-def solve(a):
-    # wrapper method to solve a system of equations with method of choice
-    return solve_contejean_devie(a)
-
 def msleq(x,y):
     # True if (multisets) x <= y (vector comparison)
     for k in x:
@@ -217,28 +147,12 @@ def interleq(x, y, intrp):
     # True if m(x) <= m(y) with m given by interpretation intrp
     return msleq(interpret(x,intrp),interpret(y,intrp))
 
-def subst(crn, intrp):
-    # Substitute implementation species for formal species in CRN according to
-    # interpretation.
-    return [[interpret(j, intrp) for j in rxn] for rxn in crn]
-
-def checkT(T):
-    """ Check (partial) interpretation for the delimiting condition.
-
-    If there is a whole row, or a whole (non-trivial) column False, then 
-    the permissive condition is violated and we have to roll back.
-
-    Returns:
-        bool: True if there is no row or (non-trivial) colum with all False values.
-    """
-    for row in T:
-        if all(not b for b in row):
-            return False
-    n = len(T[0])
-    for e, col in enumerate(zip(*T), 1):
-        if e != n and all(not b for b in col):
-            return False
-    return True
+def subst(crn, intrp, counter = True):
+    """ Substitute implementation species with formal species in CRN.  """
+    if counter:
+        return [[interpret(j, intrp) for j in rxn] for rxn in crn]
+    else:
+        return [[interpretL(part, intrp) for part in rxn] for rxn in crn]
 
 def same_reaction(irxn, frxn, fs, counter = True):
     """ Check if irxn *could* implement frxn.
@@ -314,6 +228,24 @@ def updateT(fcrn, icrn, fs, counter = True):
         r.append(rr)
     return r
 
+def checkT(T):
+    """ Check (partial) interpretation for the delimiting condition.
+
+    If there is a whole row, or a whole (non-trivial) column False, then 
+    the permissive condition is violated and we have to roll back.
+
+    Returns:
+        bool: True if there is no row or (non-trivial) colum with all False values.
+    """
+    for row in T:
+        if all(not b for b in row):
+            return False
+    n = len(T[0])
+    for e, col in enumerate(zip(*T), 1):
+        if e != n and all(not b for b in col):
+            return False
+    return True
+
 def formal_states(fstate, inter, counter = False):
     """ Generate a minimal set of istates which interpret to fstate.
 
@@ -333,6 +265,109 @@ def formal_states(fstate, inter, counter = False):
                                                     inter,
                                                     counter):
                     yield ([k] + out) if not counter else (Counter({k:1}) + out)
+
+def passes_modularity_condition(bisim, icrn, common_is, common_fs):
+    """ Check if a bisimulation satisfies the modularity condition.
+
+    The modularity condition is formulated with respect to a subset of *common
+    implementation* and *common formal* species, where each common
+    implementation species must interpet to a common formal species.  The
+    bisimulation is modular if every implementation species can turn into
+    common implementation species with the same interpretation via trivial
+    reactions (that is the interpretation of the reaction must be trival).
+    For details check JDW2019: Definition 3.3 (Modularity condition).
+
+    SB: contains a slight change in iteration compared to "theOne" before.
+
+    (This is basically the graphsearch algorithm to check the permissive
+    condition, where all "minimal states" are each exactly one implementation
+    species.)
+
+    Args:
+        bisim (dict): An interpretation which is a CRN bisimulation.
+        icrn (list[lists]): An implementation CRN.
+        common_is (set): A set of common implementation species.
+        common_fs (set): A set of common formal species.
+
+    Returns:
+        bool: True if modularity condition is satisfied.
+    """
+    # All common implementation species are part of the interpretation.
+    assert all(ci in bisim for ci in common_is)
+    # All interpretations of common implementation species 
+    # are part of common formal species.
+    # assert all(cf in common_fs for ci in common_is for cf in bisim[ci])
+
+    def Y(s):
+        return s in common_is
+    def Z(s):
+        return len(set(bisim[s]) & common_fs) == 0
+
+    trivial_rxns = [] # trivial reactions
+    for rxn in icrn:
+        iR = interpretL(rxn[0], bisim) 
+        iP = interpretL(rxn[1], bisim) 
+        if sorted(iR) == sorted(iP):
+            trivial_rxns.append(rxn)
+
+    done = {s for s in bisim if Y(s) or Z(s)}
+    todo = {s: [set(), set()] for s in bisim if s not in done} 
+    # todo[s] = [reach, produce]
+
+    reset = len(todo) > 0
+    while reset:
+        reset = False
+        for r in list(todo.keys()): # start at any of the non-common intermediates
+            [r_reach, r_produce] = todo[r]
+            for R, P in trivial_rxns:
+                if r not in R:
+                    continue
+                nR = R[:]
+                nR.remove(r)
+                if set(nR) > r_produce:
+                    # There is at least one more reactant which (as far as we
+                    # have seen) cannot be produced by r.
+                    continue
+
+                nullsp, mystic = set(), set()
+                for p in P:
+                    if p in done or (not is_contained(bisim[r], bisim[p])): 
+                        # If p is done, then any other p in P is either {} or
+                        # it is also a reactant which must be checked
+                        # separately. Alternatively, if the interpretation
+                        # of products contains the interpretation
+                        # of reactants and more, then we can call this one
+                        # done and move on to check p.
+                        done.add(r)
+                        del todo[r]
+                        break
+                    elif len(bisim[p]) == 0:
+                        nullsp.add(p)
+                    else:
+                        mystic.add(p)
+                if r in done:
+                    reset = True
+                    break
+                # Now investigate the mysterious "non-common implementation"
+                # products which interpret to a formal species, but are not
+                # known to be exit states.
+                for p in mystic: 
+                    if p not in r_reach:
+                        r_reach.add(p)
+                        reset = True
+                    [p_reach, p_produce] = todo[p]
+                    if not (p_reach <= r_reach):
+                        # anything reachable by products is reachable by reactants.
+                        r_reach |= p_reach
+                        reset = True
+                    if r in p_reach:
+                        # we know r -> p -> r, so all r_nullsp and p_nullsp 
+                        # can be produced at infinite amounts.
+                        loopable = nullsp | p_produce
+                        if not (loopable <= r_produce):
+                            r_produce |= loopable
+                            reset = True
+    return len(todo) == 0
 
 def check_permissive(fcrn, icrn, fs, intrp, permcheck):
     """ Check the permissive condition.
@@ -530,97 +565,7 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
                     tested.append(j)
     return True, 0
 
-def find_one_trivial(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
-
-    # All unknown implementation reactions (i.e. those with some unknown
-    # species) must be trivial.  Build the matrix for the the "solve" function,
-    # to see whether the interpretation can be completed as required.  Also
-    # note that "unknow" is not used; the unknown species are recalculated here
-    # because "unknow" contains only those implementation reactions that have
-    # not been solved by the row search, but other rows (i.e. implementation
-    # reactions) may be implicitly solved by the partial interpretation.
-    sicrn = subst(icrn, intrp)
-
-    # List of implementation reactions with an unknown species.
-    unknown = [i for i, irxn in enumerate(sicrn) if len(set(irxn[0]) - fs) or \
-                                                   len(set(irxn[1]) - fs)]
-    # All species that remain unknown in current (partial) interpretation.
-    unassigned = set(s for irxn in sicrn for s in set(irxn[0]) - fs | set(irxn[1]) - fs)
-    
-    # Find species that do not satisfy atomic condition
-    atoms_needed = list(fs - set().union(*[set(a) for a in intrp.values() if sum(a.values()) == 1]))
-
-    log.info(f'Trivial reaction solver: {unknown=}')
-    log.info(f'Missing atoms: {atoms_needed}')
-    log.info(f'Unknown species: {unassigned}')
-
-    for assign in permutations(unassigned, len(atoms_needed)): # works even if l == 0
-        # each assign is a tuple of implementation species to be interpreted as
-        # exactly one formal species, matching the order of atoms_needed.
-        log.debug(f'{assign=}')
-
-        parti = intrp.copy()
-        for i, a in enumerate(atoms_needed):
-            assert assign[i] not in parti
-            parti[assign[i]] = Counter({a: 1})
-        log.debug(f'{parti=}')
-
-        sicrn = subst(icrn, parti)
-        T = updateT(fcrn, sicrn, fs)
-        if (not checkT(T)) or any([T[i][-1] is False for i in unknown]):
-            continue
-
-        ulist = [sp for sp in unassigned if sp not in assign]
-        log.debug(f'{ulist=}')
-        if not ulist:
-            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
-            if out:
-                yield parti
-            continue
-
-        # A mini table. 
-        # For every unknown implementation reaction make a list:
-        #   - for each unassigend species store #ur - #up
-        a = []
-        for i in unknown:
-            irxn = sicrn[i]
-            log.debug(irxn)
-            # A list of #ur - #up
-            a.append([irxn[0][u]-irxn[1][u] for u in ulist] + [0])
-        log.debug(f'{a=}')
-
-        # prepare for adding species to the counter ...
-        for u in ulist:
-            parti[u] = Counter()
-        log.debug(f'{parti=}')
-
-        check = True
-        for fsp in fs:
-            log.warning(f'{fsp=}')
-            for e, i in enumerate(unknown):
-                irxn = sicrn[i]
-                # A list of #fsr - #fsp
-                a[e][-1] = irxn[0][fsp]-irxn[1][fsp]
-            log.debug(f'{a=}')
-
-            # Alright, this can find one, but only one solution... 
-            s = solve(a)
-            log.debug(f'{s=}')
-            if s == []:
-                check = False
-                break
-            else:
-                for j, u in enumerate(ulist):
-                    parti[u][fsp] = s[j]
-        if check:
-            for isp in ulist:
-                parti[isp] = parti[isp] + Counter()
-            out, info = check_permissive(fcrn, icrn, fs, parti, permcheck)
-            if out:
-                yield parti
-    return
-
-def check_permissive_graphsearch(fcrn, icrn, fs, intrp):
+def check_permissive_graphsearch(fcrn, icrn, fs, inter):
     """ The 'graphsearch' algorithm to check the permissive condition. 
 
     Checks whether every implementation of a formal state that can react in the
@@ -628,16 +573,11 @@ def check_permissive_graphsearch(fcrn, icrn, fs, intrp):
     reaction that interprets to r.
 
     """
-    sicrn = subst(icrn, intrp)
-    T = updateT(fcrn, sicrn, fs)
-    assert checkT(T) # assuming this has been checked before calling permissive.
-    assert all(fs | set(v) == fs for k, v in intrp.items())
 
-    # Convert to list format.
-    fcrn = [rl(frxn) for frxn in fcrn]
-    icrn = [rl(irxn) for irxn in icrn]
-    sicrn = [rl(sirxn) for sirxn in sicrn]
-    inter = inter_list(intrp)
+    sicrn = subst(icrn, inter, counter = False)
+    T = updateT(fcrn, sicrn, fs, counter = False)
+    assert checkT(T) # assuming this has been checked before calling permissive.
+    assert all(fs | set(v) == fs for k, v in inter.items())
 
     log.debug(f'The implementation CRN:\n' + '\n'.join(
         [f'{e} {t=} {pretty_rxn(sicrn[e])} ({pretty_rxn(icrn[e])})' \
@@ -717,8 +657,13 @@ def passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'
     log.debug(f'Checking permissive condition using {permcheck=}.')
 
     if permcheck == 'graphsearch':
-        passes, info = check_permissive_graphsearch(fcrn, icrn, fs, intrp)
+        # Convert to list format.
+        fcrn = [rl(frxn) for frxn in fcrn]
+        icrn = [rl(irxn) for irxn in icrn]
+        inter = inter_list(intrp)
+        passes, info = check_permissive_graphsearch(fcrn, icrn, fs, inter)
     else:
+        print(f'UNTESTED PERMISSIVE CHECKER: {permcheck}')
         passes, info = check_permissive(fcrn, icrn, fs, intrp, permcheck = permcheck)
     return passes, info
 
@@ -999,109 +944,6 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
     assert len(later) == 0
     return
 
-def is_modular(bisim, icrn, common_is, common_fs):
-    """ Check if a bisimulation satisfies the modularity condition.
-
-    The modularity condition is formulated with respect to a subset of *common
-    implementation* and *common formal* species, where each common
-    implementation species must interpet to a common formal species.  The
-    bisimulation is modular if every implementation species can turn into
-    common implementation species with the same interpretation via trivial
-    reactions (that is the interpretation of the reaction must be trival).
-    For details check JDW2019: Definition 3.3 (Modularity condition).
-
-    SB: contains a slight change in iteration compared to "theOne" before.
-
-    (This is basically the graphsearch algorithm to check the permissive
-    condition, where all "minimal states" are each exactly one implementation
-    species.)
-
-    Args:
-        bisim (dict): An interpretation which is a CRN bisimulation.
-        icrn (list[lists]): An implementation CRN.
-        common_is (set): A set of common implementation species.
-        common_fs (set): A set of common formal species.
-
-    Returns:
-        bool: True if modularity condition is satisfied.
-    """
-    # All common implementation species are part of the interpretation.
-    assert all(ci in bisim for ci in common_is)
-    # All interpretations of common implementation species 
-    # are part of common formal species.
-    # assert all(cf in common_fs for ci in common_is for cf in bisim[ci])
-
-    def Y(s):
-        return s in common_is
-    def Z(s):
-        return len(set(bisim[s]) & common_fs) == 0
-
-    trivial_rxns = [] # trivial reactions
-    for rxn in icrn:
-        iR = interpretL(rxn[0], bisim) 
-        iP = interpretL(rxn[1], bisim) 
-        if sorted(iR) == sorted(iP):
-            trivial_rxns.append(rxn)
-
-    done = {s for s in bisim if Y(s) or Z(s)}
-    todo = {s: [set(), set()] for s in bisim if s not in done} 
-    # todo[s] = [reach, produce]
-
-    reset = len(todo) > 0
-    while reset:
-        reset = False
-        for r in list(todo.keys()): # start at any of the non-common intermediates
-            [r_reach, r_produce] = todo[r]
-            for R, P in trivial_rxns:
-                if r not in R:
-                    continue
-                nR = R[:]
-                nR.remove(r)
-                if set(nR) > r_produce:
-                    # There is at least one more reactant which (as far as we
-                    # have seen) cannot be produced by r.
-                    continue
-
-                nullsp, mystic = set(), set()
-                for p in P:
-                    if p in done or (not is_contained(bisim[r], bisim[p])): 
-                        # If p is done, then any other p in P is either {} or
-                        # it is also a reactant which must be checked
-                        # separately. Alternatively, if the interpretation
-                        # of products contains the interpretation
-                        # of reactants and more, then we can call this one
-                        # done and move on to check p.
-                        done.add(r)
-                        del todo[r]
-                        break
-                    elif len(bisim[p]) == 0:
-                        nullsp.add(p)
-                    else:
-                        mystic.add(p)
-                if r in done:
-                    reset = True
-                    break
-                # Now investigate the mysterious "non-common implementation"
-                # products which interpret to a formal species, but are not
-                # known to be exit states.
-                for p in mystic: 
-                    if p not in r_reach:
-                        r_reach.add(p)
-                        reset = True
-                    [p_reach, p_produce] = todo[p]
-                    if not (p_reach <= r_reach):
-                        # anything reachable by products is reachable by reactants.
-                        r_reach |= p_reach
-                        reset = True
-                    if r in p_reach:
-                        # we know r -> p -> r, so all r_nullsp and p_nullsp 
-                        # can be produced at infinite amounts.
-                        loopable = nullsp | p_produce
-                        if not (loopable <= r_produce):
-                            r_produce |= loopable
-                            reset = True
-    return len(todo) == 0
-
 def crn_bisimulations(fcrn, icrn, 
                       interpretation = None,
                       formals = None, 
@@ -1247,7 +1089,7 @@ def modular_crn_bisimulation_test(fcrns, icrns, formals,
             # common with at least one other module.
             fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
             isc = {i for i, m in ispc.items() if e in m and len(m) > 1}
-            if is_modular(bisim, icrn, isc, fsc):
+            if passes_modularity_condition(bisim, icrn, isc, fsc):
                 found = True
                 inter.update(bisim)
                 break # TODO: maybe re-insert the iterate part here ...
@@ -1281,3 +1123,4 @@ def crn_bisimulation_test(fcrn, icrn, formals,
         return True, bisim
     except StopIteration:
         return False, None
+
