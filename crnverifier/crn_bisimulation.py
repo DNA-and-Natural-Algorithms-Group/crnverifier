@@ -369,7 +369,7 @@ def passes_modularity_condition(bisim, icrn, common_is, common_fs):
                             reset = True
     return len(todo) == 0
 
-def check_permissive(fcrn, icrn, fs, intrp, permcheck):
+def check_permissive_reactionsearch(fcrn, icrn, fs, intrp):
     """ Check the permissive condition.
     
     Uses the original formal CRN  and original implementation CRN
@@ -381,13 +381,7 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
         fs: The formal species.
 
     """
-    if len(permcheck) == 2:
-        permissive_depth = permcheck[1]
-        permcheck = permcheck[0]
-    else:
-        permissive_depth = None
-    log.debug(f'Checking permissive condition using {permcheck=} {permissive_depth=}.')
-
+    permissive_depth = None
     sicrn = subst(icrn, intrp)
     T = updateT(fcrn, sicrn, fs)
     assert checkT(T) # Assuming this has been checked before calling permissive.
@@ -446,92 +440,6 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
                     ret = None
         return ret
 
-    def midsearch(start, goal, pickup, ignore, formal, k):
-        # search for a path from start to goal (states of non-null species)
-        #  which produces at least pickup null species
-        #  assuming it already has infinite copies of everything in ignore
-        #  of length at most 2^k
-        # if goal is None, the goal is any reaction in fr
-        if goal is not None:
-            if ignore.issuperset(goal - start):
-                return True
-            if not interleq(goal, start, intrp):
-                return False
-
-        if k == 0:
-            if goal is None:
-                for rx in fr:
-                    if ignore.issuperset(rx[0] - start):
-                        return True
-                return False
-            
-            for rx in trivial_rxns:
-                if ignore.issuperset(rx[0] - start):
-                    # every element of rx[0] - start (multiset)
-                    #  is also an element of ignore (set)
-                    # e.g. true on rx[0] - start = {|a,a,b|}, ignore = {a,b,c}
-                    if msleq(goal, (start - rx[0]) + rx[1]):
-                        return True
-
-        else:
-            if midsearch(start,goal,pickup,ignore,formal,k-1):
-                return True
-            for part in subsets(Counter(pickup)):
-                for mid in cnstr(formal):
-                    if midsearch(start,mid,set(part),ignore,formal,k-1) \
-                       and ((not interleq(start, mid, intrp)) or
-                            midsearch(mid,goal,pickup-set(part),ignore,
-                                      formal,k-1)):
-                        return True
-
-        return False
-
-    def loopsearch(start, formal):
-        # search for a path from start to any reaction in fr
-        if permissive_depth:
-            rounds = math.ceil(math.log(permissive_depth, 2))
-        else:
-            nequiv = 0
-            rounds = 0
-            roundequiv = 1
-            for point in cnstr(formal):
-                nequiv += 1
-                if nequiv > roundequiv:
-                    rounds += 1
-                    roundequiv *= 2
-
-        for parti in enum(len(nulls) + 1,Counter(nulls)):
-            part = list(map(set,parti))
-            if any([part[i] != set() and part[i+1] == set() \
-                    for i in range(len(part) - 2)]):
-                continue # avoid redundancy
-
-            pickups = [_f for _f in part[:-1] if _f is not None]
-            check1 = True
-            place = start
-            ignore = set()
-            for pickup in pickups:
-                check2 = False
-                for base in cnstr(formal):
-                    if midsearch(place,base,set(),ignore,formal,rounds):
-                        if not interleq(place,base,intrp):
-                            return True
-                        elif midsearch(base,base,pickup,ignore,formal,rounds):
-                            check2 = True
-                            place = base
-                            break
-
-                if not check2:
-                    check1 = False
-                    break
-
-                ignore |= pickup
-
-            if check1 and midsearch(place,None,set(),ignore,formal,rounds):
-                return True
-
-        return False if not permissive_depth else None
-
     for i, frxn in enumerate(fcrn):
         # build fr for this formal reaction
         fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
@@ -557,12 +465,127 @@ def check_permissive(fcrn, icrn, fs, intrp, permcheck):
                 if t:
                     continue
                 hasht = set([])
-                found = ((permcheck=="loopsearch") and loopsearch(j,frxn[0])) \
-                        or ((permcheck=="reactionsearch") and reactionsearch(j,0))
+                found = reactionsearch(j, 0)
                 if not found: 
                     return False, (frxn, j)
                 elif not spaceefficient:
                     tested.append(j)
+    return True, 0
+
+def check_permissive_loopsearch(fcrn, icrn, fs, inter):
+    """ The 'loopsearch' algorithm to check the permissive condition. 
+    """
+    sicrn = subst(icrn, inter, counter = False)
+    T = updateT(fcrn, sicrn, fs, counter = False)
+    assert checkT(T) # Assuming this has been checked before calling permissive.
+    assert all(fs | set(v) == fs for k, v in inter.items())
+
+    log.debug(f'The implementation CRN:\n' + '\n'.join(
+        [f'{e} {t=} {pretty_rxn(sicrn[e])} ({pretty_rxn(icrn[e])})' \
+                for e, t in enumerate(T)]))
+    log.debug(f'{inter=}')
+
+    # Potential null species.
+    nulls = [k for k, v in inter.items() if len(v) == 0]
+
+    # Those are all remaining trivial reactions.
+    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
+
+    def midsearch(start, goal, pickup, ignore, fstates, k):
+        # search for a path from start to goal (states of non-null species)
+        #  which produces at least pickup null species
+        #  assuming it already has infinite copies of everything in ignore
+        #  of length at most 2^k
+        # if goal is None, the goal is any reaction in fr
+        if goal is not None:
+            if ignore.issuperset(subtractL(list(goal), start, False)):
+                return True
+            if not is_contained(interpretL(goal, inter), 
+                                interpretL(start, inter)):
+                return False
+
+        if k == 0:
+            if goal is None:
+                for rx in fr:
+                    if ignore.issuperset(subtractL(rx[0], start, False)):
+                        return True
+                return False
+            
+            for rx in trivial_rxns:
+                if ignore.issuperset(subtractL(rx[0], start, False)):
+                    # every element of rx[0] - start (multiset)
+                    #  is also an element of ignore (set)
+                    # e.g. true on rx[0] - start = {|a,a,b|}, ignore = {a,b,c}
+                    if is_contained(goal, subtractL(start, rx[0], False) + rx[1]):
+                        return True
+
+        else:
+            if midsearch(start, goal, pickup, ignore, fstates, k-1):
+                return True
+            for part in subsetsL(pickup):
+                for mid in fstates:
+                    if midsearch(start, mid, set(part), ignore, fstates, k-1) \
+                       and ((not is_contained(interpretL(start, inter), interpretL(mid, inter))) or
+                            midsearch(mid,goal,pickup-set(part),ignore, fstates,k-1)):
+                        return True
+
+        return False
+
+    def loopsearch(start, fstates):
+        # search for a path from start to any reaction in fr
+        rounds, roundequiv = 0, 1
+        for nequiv, point in enumerate(fstates, 1):
+            if nequiv > roundequiv:
+                rounds += 1
+                roundequiv *= 2
+
+        for parti in enumL(len(nulls) + 1, nulls):
+            log.debug(f'{parti=}')
+            part = list(map(set, parti))
+            if any([part[i] != set() and part[i+1] == set() for i in range(len(part) - 2)]):
+                continue # avoid redundancy
+
+            pickups = [_f for _f in part[:-1] if _f is not None]
+            place = start
+            ignore = set()
+            for pickup in pickups:
+                for base in fstates:
+                    if midsearch(place, base, set(), ignore, fstates, rounds):
+                        if not is_contained(interpretL(place, inter), 
+                                            interpretL(base, inter)):
+                            return True
+                        elif midsearch(base, base, pickup, ignore, fstates, rounds):
+                            place = base
+                            break
+                else:
+                    break
+                ignore |= pickup
+            else:
+                if midsearch(place, None, set(), ignore, fstates, rounds):
+                    return True
+        return False
+
+    mode = 'time-efficient'
+    for i, frxn in enumerate(fcrn):
+        # build fr for this formal reaction
+        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+
+        fstates = list(map(sorted, formal_states(frxn[0], inter)))
+        tested = []  # to avoid testing a superset of some state that's already been tested
+        for fstate in fstates:
+            # The formal reaction can happen.
+            if is_contained(frxn[0], interpretL(fstate, inter)):
+                for k in tested:
+                    # TODO: might make sense to sort those states, right?
+                    if is_contained(k, list(fstate)):
+                        break
+                else:
+                    hasht = set([])
+                    if loopsearch(fstate, fstates):
+                        if mode == 'time-efficient':
+                            tested.append(fstate)
+                    else:
+                        return False, (frxn, fstate)
     return True, 0
 
 def check_permissive_graphsearch(fcrn, icrn, fs, inter):
@@ -651,9 +674,6 @@ def check_permissive_graphsearch(fcrn, icrn, fs, inter):
 def passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
     """
     """
-    if len(permcheck) == 2:
-        print('DEPRECATED ARGUMENT')
-        permcheck = permcheck[0]
     log.debug(f'Checking permissive condition using {permcheck=}.')
 
     if permcheck == 'graphsearch':
@@ -662,9 +682,22 @@ def passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'
         icrn = [rl(irxn) for irxn in icrn]
         inter = inter_list(intrp)
         passes, info = check_permissive_graphsearch(fcrn, icrn, fs, inter)
+    elif permcheck == 'loopsearch':
+        if False:
+            print(f'WARNING: {permcheck=} has a bug (old version).')
+            from .deprecated import permissive
+            passes, info = permissive(fcrn, icrn, fs, intrp, permcheck)
+        else:
+            print(f'WARNING: {permcheck=} has a bug.')
+            fcrn = [rl(frxn) for frxn in fcrn]
+            icrn = [rl(irxn) for irxn in icrn]
+            inter = inter_list(intrp)
+            passes, info = check_permissive_loopsearch(fcrn, icrn, fs, inter)
+    elif permcheck == 'reactionsearch':
+        passes, info = check_permissive_reactionsearch(fcrn, icrn, fs, intrp)
     else:
-        print(f'UNTESTED PERMISSIVE CHECKER: {permcheck}')
-        passes, info = check_permissive(fcrn, icrn, fs, intrp, permcheck = permcheck)
+        raise SystemExit(f'Unknown algorithm for permissive condition: {permcheck}')
+
     return passes, info
 
 def passes_delimiting_condition(fcrn, icrn, fs, inter):

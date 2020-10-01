@@ -37,7 +37,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           subst) 
 
 SKIP_SLOW = True
-SKIP_DEBUG = False
+SKIP_DEBUG = True
 
 def rl(rxn):
     return [list(part.elements()) for part in rxn]
@@ -458,7 +458,7 @@ class HelperTests(unittest.TestCase):
                  [False, True, False]]
         assert checkT(table) is True
 
-@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+#@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ConditionTests(unittest.TestCase):
     def test_atomic_01(self):
         fs = set(['A', 'B', 'C'])
@@ -492,7 +492,11 @@ class ConditionTests(unittest.TestCase):
                  'b' : ['A'],
                  'c' : ['C']}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
         assert passes
 
     def test_permissive_02(self):
@@ -505,7 +509,11 @@ class ConditionTests(unittest.TestCase):
         inter = {'a' : ['A'],
                  'x' : []}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert not passes
+        #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        #assert not passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
         assert not passes
 
     def test_permissive_03(self):
@@ -518,13 +526,22 @@ class ConditionTests(unittest.TestCase):
         inter = {'a' : ['A'],
                  'x' : ['A']}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        assert passes
+
 
         inter = {'a' : ['A'],
                  'x' : []}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
         assert passes
 
     def test_permissive_04(self):
@@ -538,7 +555,11 @@ class ConditionTests(unittest.TestCase):
                  'b' : ['B'],
                  'x' : []}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
         assert passes
 
     def test_permissive_05(self):
@@ -553,11 +574,15 @@ class ConditionTests(unittest.TestCase):
                  'y' : ['A'],
                  'z' : []}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
-        print(passes_permissive_condition(fcrn, icrn, fs, inter))
-        print(passes_permissive_condition(fcrn, icrn, fs, inter, 'loopserach'))
-        print(passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch'))
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        assert passes
+        #print(passes_permissive_condition(fcrn, icrn, fs, inter))
+        #print(passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch'))
+        #print(passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch'))
 
     def test_permissive_06(self):
         fcrn = "A + B -> C + D"
@@ -568,8 +593,51 @@ class ConditionTests(unittest.TestCase):
         icrn = [rc(rxn) for rxn in icrn]
         inter={'a': ['B'], 'b': ['A'], 'c': [], 'd': ['A', 'B'], 'e': ['C'], 'f': ['D']}
         inter = inter_counter(inter)
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
+        #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        #assert not passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        assert not passes
+
+    def test_permissive_07(self):
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter = {'i{A}': ['A'], 
+                 'i{B}': ['B'], 
+                 'i{C}': ['C'], 
+                 'i{X}': ['X'],
+                 'i{Y}': ['Y'], 
+                 'i14': [],
+                 'i15': [], 
+                 'i73': ['B'], 
+                 'i119': ['X', 'B', 'A'], 
+                 'i120': [], 
+                 'i194': [], 
+                 'i394': ['X', 'X', 'Y'], 
+                 'i575': ['X'], 
+                 'i599': ['C'], 
+                 'i631': [], 
+                 'i778': ['Y'], 
+                 'i842': ['Y', 'X', 'A'], 
+                 'i886': [],
+                 'i969': [],
+                 'i1457': [], 
+                 'i2232': ['A'], 
+                 'i2300': ['A', 'C'], 
+                 'i2340': [], 
+                 'i2392': [], 
+                 'i3032': []}
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert not passes
+        #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        #assert not passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        assert not passes
+
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestColumnSearch(unittest.TestCase):
@@ -1177,13 +1245,13 @@ class FastBisimulationTests(unittest.TestCase):
                                      interpretation = inter_02, 
                                      permissive = 'graphsearch')
         self.assertTrue(v)
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_02, 
-                                     permissive = 'reactionsearch')
-        self.assertTrue(v)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs,
                                      interpretation = inter_02, 
                                      permissive = 'loopsearch')
+        self.assertTrue(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
+                                     interpretation = inter_02, 
+                                     permissive = 'reactionsearch')
         self.assertTrue(v)
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")

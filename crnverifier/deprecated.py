@@ -886,6 +886,306 @@ def perm(fcrn, icrn, fs, intrp, permcheck, state):
     intr = intrp.copy()
     return [True, intr]
 
+def permissive(fcrn, icrn, fs, intrp, permcheck):
+    """ Check the permissive condition.
+    
+    Uses the original formal CRN  and original implementation CRN
+    (without substitutions).
+
+    Args:
+        fcrn: The original formal CRN
+        icrn: The original implementation CRN
+        fs: The formal species.
+
+    """
+    from .crn_bisimulation import subst, updateT, checkT, enumL
+    permissive_depth = None
+
+    tr = []
+    fr = []
+    hasht = set([])
+
+    sicrn = subst(icrn, intrp)
+    T = updateT(fcrn, sicrn, fs)
+    assert checkT(T) # Assuming this has been checked before calling permissive.
+    nulls = [k for k in intrp if not len(list(intrp[k]))] # null species
+
+    def cnstr(s):
+        # given formal state s, generate minimal set of impl. states which
+        #  interpret to a superset of s
+        # = concatenation of any x such that s[0] in m(x) with
+        #  all minimal implementations of s - m(x)
+        if list(s.keys()) == []:
+            yield Counter()
+        else:
+            s1 = list(s.keys())[0]
+            for k in intrp:
+                if s1 in intrp[k]:
+                    if (s - intrp[k])[s1] >= s[s1]:
+                        assert False
+                    for out in cnstr(s - intrp[k]):
+                        yield Counter({k:1}) + out
+
+    def reactionsearch(s, d):
+        # s is the implementation state, d is the depth.
+        # try to find (via trivial reactions) a state in which a reaction in fr can fire.
+        # fr is a particular formal reaction along with all implementation reactions that interpret to it. 
+        # tr is the list of all trivial reactions in the implementation.
+        # fail if depth d of trivial reaction steps is exceeded without firing a reaction in fr.
+        if permissive_depth and d > permissive_depth:
+            return None
+        hashee = list(s.elements())
+        for i in range(len(hashee)):
+            try:
+                if hashee[i][0] == 'impl':
+                    hashee[i] = hashee[i][1]
+            except (IndexError, TypeError):
+                pass
+        hashee = tuple(sorted(hashee))
+        if hashee in hasht:
+            return False
+        else:
+            hasht.add(hashee)
+        for i in fr:
+            if list((i[0] - s).keys()) == []:
+                return True
+        ret = False
+        for i in tr:
+            if list((i[0] - s).keys()) == []:
+                t = (s - i[0]) + i[1]
+                out = reactionsearch(t, d+1)
+                if out:
+                    return True
+                elif out is None:
+                    ret = None
+        return ret
+
+    def midsearch(start, goal, pickup, ignore, formal, k):
+        # search for a path from start to goal (states of non-null species)
+        #  which produces at least pickup null species
+        #  assuming it already has infinite copies of everything in ignore
+        #  of length at most 2^k
+        # if goal is None, the goal is any reaction in fr
+        if goal is not None:
+            if ignore.issuperset(goal - start):
+                return True
+            if not interleq(goal, start, intrp):
+                return False
+
+        if k == 0:
+            if goal is None:
+                for rx in fr:
+                    if ignore.issuperset(rx[0] - start):
+                        return True
+                return False
+            
+            for rx in tr:
+                if ignore.issuperset(rx[0] - start):
+                    # every element of rx[0] - start (multiset)
+                    #  is also an element of ignore (set)
+                    # e.g. true on rx[0] - start = {|a,a,b|}, ignore = {a,b,c}
+                    if msleq(goal, (start - rx[0]) + rx[1]):
+                        return True
+
+        else:
+            if midsearch(start,goal,pickup,ignore,formal,k-1):
+                return True
+            for part in subsets(Counter(pickup)):
+                for mid in cnstr(formal):
+                    if midsearch(start,mid,set(part),ignore,formal,k-1) \
+                       and ((not interleq(start, mid, intrp)) or
+                            midsearch(mid,goal,pickup-set(part),ignore,
+                                      formal,k-1)):
+                        return True
+
+        return False
+
+    def loopsearch(start, formal):
+        # search for a path from start to any reaction in fr
+        if permissive_depth:
+            rounds = math.ceil(math.log(permissive_depth, 2))
+        else:
+            nequiv = 0
+            rounds = 0
+            roundequiv = 1
+            for point in cnstr(formal):
+                nequiv += 1
+                if nequiv > roundequiv:
+                    rounds += 1
+                    roundequiv *= 2
+
+        for parti in enum(len(nulls) + 1,Counter(nulls)):
+            part = list(map(set,parti))
+            if any([part[i] != set() and part[i+1] == set() \
+                    for i in range(len(part) - 2)]):
+                continue # avoid redundancy
+
+            pickups = [_f for _f in part[:-1] if _f is not None]
+            check1 = True
+            place = start
+            ignore = set()
+            for pickup in pickups:
+                check2 = False
+                for base in cnstr(formal):
+                    if midsearch(place,base,set(),ignore,formal,rounds):
+                        if not interleq(place,base,intrp):
+                            return True
+                        elif midsearch(base,base,pickup,ignore,formal,rounds):
+                            check2 = True
+                            place = base
+                            break
+
+                if not check2:
+                    check1 = False
+                    break
+
+                ignore |= pickup
+
+            if check1 and midsearch(place,None,set(),ignore,formal,rounds):
+                return True
+
+        return False if not permissive_depth else None
+
+    def graphsearch(formal):
+        """Check whether every implementation of state "formal" can implement the given formal reaction.
+
+        This function stores for each state the list of states it can reach.
+         -- w/o null species (except those producible by loops)
+        """
+        points = list([[x,set([]),[]] for x in cnstr(formal)])
+        # points[i][0] is the ith implementation state
+        # points[i][1] is all null species loopable from that state
+        # points[i][2][j] is True if points[j][0] is known to be reachable
+        #  (from state i without initial null species)
+        # exception: points[i][2] is True if a formal reaction is known to
+        #  be reachable from state i
+        l = len(points) # let's not recalculate this every time...
+        rngl = list(range(l)) # same here...
+        for i in rngl:
+            points[i][2] = l*[False]
+
+        if permissive_depth:
+            d = 0
+        changed = True
+        while changed and ((not permissive_depth) or d < permissive_depth):
+            changed = False
+            if permissive_depth:
+                d = d + 1
+            for i in rngl:
+                if points[i][2] is not True:
+                    for rx in fr:
+                        if points[i][1].issuperset(rx[0] - points[i][0]):
+                            points[i][2] = True
+                            changed = True
+                            break
+
+                    if points[i][2] is True:
+                        continue
+
+                    for rx in tr:
+                        if points[i][1].issuperset(rx[0] - points[i][0]):
+                            left = points[i][0] - rx[0]
+                            after = left + rx[1]
+                            for j in rngl:
+                                if msleq(points[j][0],after):
+                                    if points[j][2] is True:
+                                        points[i][2] = True
+                                        changed = True
+                                        break
+
+                                    if points[j][2][i]:
+                                        s = points[j][1].union(
+                                            [x for x in left if x in nulls])
+                                        if not s <= points[i][1]:
+                                            points[i][1] |= s
+                                            changed = True
+
+                                    if not points[i][2][j]:
+                                        points[i][2][j] = True
+                                        changed = True
+
+                                    for k in rngl:
+                                        if (not points[i][2][k]) \
+                                           and points[j][2][k]:
+                                            points[i][2][k] = True
+                                            changed = True
+
+                        if points[i][2] is True:
+                            break
+
+        if permissive_depth and changed:
+            return None
+        return all([p[2] is True for p in points])
+    
+    n = 0
+    # build tr just once
+    for i in T:
+        if i.pop():
+            tr.append(icrn[n])
+        n += 1
+
+    for i in range(len(fcrn)):
+        # build fr for this formal reaction
+        fr = []
+        for j in range(len(icrn)):
+            if T[j][i]:
+                fr.append(icrn[j])
+
+        ist = cnstr(fcrn[i][0])
+
+        if permcheck == "graphsearch":
+            out = graphsearch(fcrn[i][0])
+            if not out:
+                if max_depth == -2:
+                    return [False, [intr, max_depth, permissive_failure]]
+                if out is False: # proven unreachable
+                    max_depth = -1
+                else: # arbitrarily specified max search depth reached
+                    max_depth = -2
+                intr = intrp.copy()
+                permissive_failure[0] = fcrn[i]
+                permissive_failure[1] = ["Somewhere"]
+                return [False, [intr, max_depth, permissive_failure]]
+
+            continue
+       
+        # At this point, "ist" contains an exhaustive and sufficient list of
+        # possible initial implementation states in which the current formal
+        # reaction #i must be able to fire (via a series of trivial reactions),
+        # Note that we will only want to test states in "ist" that interpret to
+        # a state in which #i can fire.
+
+        tested = []  # to avoid testing a superset of some state that's already been tested
+        spaceefficient = True # ... but only if we have space to store them
+        for j in ist:
+            tmp = interpret(j,intrp)
+            if msleq(fcrn[i][0], tmp):  # only test if reactants j interpret to allow #i to fire
+                t = False
+                for k in tested:
+                    # will be a 0-length loop if spaceefficient
+                    if msleq(k, j):
+                        t = True
+                        break
+                if t:
+                    continue
+                hasht = set([])
+                found = ((permcheck=="loopsearch") and loopsearch(j,fcrn[i][0])) \
+                        or ((permcheck=="reactionsearch") and reactionsearch(j,0))
+                if not found: # didn't work, but keep track of stuff for user output
+                    if max_depth == -2:
+                        return [False, [intr, max_depth, permissive_failure]]
+                    if found is False: # reaction proven unreachable
+                        max_depth = -1
+                    else: # arbitrarily specified max search depth reached
+                        max_depth = -2
+                    intr = intrp.copy()
+                    permissive_failure[0] = fcrn[i]
+                    permissive_failure[1] = j
+                    return [False, [intr, max_depth, permissive_failure]]
+                elif not spaceefficient:
+                    tested.append(j)
+    intr = intrp.copy()
+    return [True, intr]
 
 def searchr(fcrn, icrn, fs, unknown, intrp, d, permcheck, state, nontriv=False):
     """ Row search: every implementation reaction must interpret to a formal reaction 
