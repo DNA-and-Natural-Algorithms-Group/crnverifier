@@ -12,12 +12,12 @@ log = logging.getLogger(__name__)
 
 import copy
 import math
+import random
 from collections import Counter
 from itertools import product, permutations, combinations, chain
 
 from .utils import pretty_rxn
 from .utils import interpret as interpretL
-from .deprecated import subsets, enum 
 
 class SpeciesAssignmentError(Exception):
     pass
@@ -60,9 +60,12 @@ def formalize(intrp):
     return intr
 
 # Utils for list based multiset operations.
-def subsetsL(x):
+def subsetsL(x, reverse = True):
     """ Generate all (uniqe) multi-subsets of a list x. """
-    return chain(*[combinations(x, l) for l in range(len(x), -1, -1)])
+    if reverse:
+        return chain(*[combinations(x, l) for l in range(len(x), -1, -1)])
+    else:
+        return chain(*[combinations(x, l) for l in range(0, len(x) + 1)])
 
 def subtractL(l1, l2, strict = True):
     """ Returns a new list: l1 - l2. """
@@ -126,13 +129,6 @@ def enumL(n, l, weights = None):
             continue
     return
 
-def msleq(x,y):
-    # True if (multisets) x <= y (vector comparison)
-    for k in x:
-        if x[k] > y[k]:
-            return False
-    return True
-
 def interpret(s, intrp):
     # return interpretation of s according to intrp
     ss = s.copy()
@@ -142,10 +138,6 @@ def interpret(s, intrp):
             for i in range(v):
                 ss += intrp[k]
     return ss
-
-def interleq(x, y, intrp):
-    # True if m(x) <= m(y) with m given by interpretation intrp
-    return msleq(interpret(x,intrp),interpret(y,intrp))
 
 def subst(crn, intrp, counter = True):
     """ Substitute implementation species with formal species in CRN.  """
@@ -246,25 +238,42 @@ def checkT(T):
             return False
     return True
 
-def formal_states(fstate, inter, counter = False):
-    """ Generate a minimal set of istates which interpret to fstate.
+def minimal_implementation_states(fstate, inter):
+    """ Generate set of minimal implementation states for a formal state.
 
     The returned implementation states may interpret to supersets of fstate.
     """
-    if len(fstate) == 0:
-        yield [] if not counter else Counter()
-    else:
-        fs = set(fstate).pop()
+    def gen_supersets():
+        if len(fstate) == 0:
+            yield []
+        else:
+            fs = set(fstate).pop()
+            fs1 = fstate[0]
+            for k in inter:
+                if fs1 in inter[k]:
+                    for out in minimal_implementation_states(subtractL(fstate, 
+                                                                       inter[k], 
+                                                                       strict = False), inter):
+                        yield [k] + out
 
-
-
-        fs1 = fstate[0]
-        for k in inter:
-            if fs1 in inter[k]:
-                for out in formal_states(subtractL(fstate, inter[k], strict = False), 
-                                                    inter,
-                                                    counter):
-                    yield ([k] + out) if not counter else (Counter({k:1}) + out)
+    def filter_minimals(lst):
+        seen = set()
+        for x in lst:
+            z = tuple(sorted(x))
+            if z in seen:
+                continue
+            if len(x) == 0:
+                yield x
+                seen.add(z)
+                continue
+            for y in combinations(x, len(x)-1):
+                if is_contained(fstate, interpretL(y, inter)):
+                    break
+            else:
+                yield x
+            seen.add(z)
+        return
+    return filter_minimals(gen_supersets())
 
 def passes_modularity_condition(bisim, icrn, common_is, common_fs):
     """ Check if a bisimulation satisfies the modularity condition.
@@ -369,7 +378,7 @@ def passes_modularity_condition(bisim, icrn, common_is, common_fs):
                             reset = True
     return len(todo) == 0
 
-def check_permissive_reactionsearch(fcrn, icrn, fs, intrp):
+def check_permissive_bruteforce(fcrn, icrn, fs, inter, maxdepth = 100):
     """ Check the permissive condition.
     
     Uses the original formal CRN  and original implementation CRN
@@ -381,99 +390,58 @@ def check_permissive_reactionsearch(fcrn, icrn, fs, intrp):
         fs: The formal species.
 
     """
-    permissive_depth = None
-    sicrn = subst(icrn, intrp)
-    T = updateT(fcrn, sicrn, fs)
+    sicrn = subst(icrn, inter, counter = False)
+    T = updateT(fcrn, sicrn, fs, counter = False)
     assert checkT(T) # Assuming this has been checked before calling permissive.
+    assert all(fs | set(v) == fs for k, v in inter.items())
 
-    nulls = [k for k in intrp if not len(list(intrp[k]))]
-    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
+    log.info(f'The implementation CRN:\n' + '\n'.join(
+        [f'{e} {t=} {pretty_rxn(sicrn[e])} ({pretty_rxn(icrn[e])})' \
+                for e, t in enumerate(T)]))
+    log.info(f'{inter=}')
 
-    def cnstr(s):
-        """
-        # given formal state s, generate minimal set of impl. states which
-        #  interpret to a superset of s
-        # = concatenation of any x such that s[0] in m(x) with
-        #  all minimal implementations of s - m(x)
-        """
-        if len(s) == 0:
-            yield Counter()
-        else:
-            s1 = list(s.keys())[0]
-            for k in intrp:
-                if s1 in intrp[k]:
-                    assert not (s - intrp[k])[s1] >= s[s1]
-                    for out in cnstr(s - intrp[k]):
-                        yield Counter({k:1}) + out
-
-    def reactionsearch(s, d):
-        # s is the implementation state, d is the depth.
-        # try to find (via trivial reactions) a state in which a reaction in fr can fire.
-        # fr is a particular formal reaction along with all implementation reactions that interpret to it. 
-        # tr is the list of all trivial reactions in the implementation.
-        # fail if depth d of trivial reaction steps is exceeded without firing a reaction in fr.
-        if permissive_depth and d > permissive_depth:
-            return None
-        hashee = list(s.elements())
-        for i in range(len(hashee)):
-            try:
-                if hashee[i][0] == 'impl':
-                    hashee[i] = hashee[i][1]
-            except (IndexError, TypeError):
-                pass
-        hashee = tuple(sorted(hashee))
-        if hashee in hasht:
+    def bruteforce(si, seen, trivials, depth = 0):
+        if maxdepth and depth > maxdepth:
+            raise SearchDepthExceeded('WARNING: brute force permissive test could not find a ')
+        st = tuple(sorted(si))
+        if st in seen:
             return False
-        else:
-            hasht.add(hashee)
-        for i in fr:
-            if list((i[0] - s).keys()) == []:
+        seen.add(st)
+        for irxn in implementations:
+            if len(subtractL(irxn[0], si, False)) == 0:
                 return True
-        ret = False
-        for i in trivial_rxns:
-            if list((i[0] - s).keys()) == []:
-                t = (s - i[0]) + i[1]
-                out = reactionsearch(t, d+1)
-                if out:
+        found = False
+        for irxn in trivials:
+            if len(subtractL(irxn[0], si, False)) == 0:
+                nS = subtractL(si, irxn[0]) + irxn[1]
+                # Shuffle the crn to reduce the probability of getting stuck in
+                # an infinite state space assuming that there is a way out ...
+                nexttrivials = trivials[:]
+                random.shuffle(nexttrivials)
+                if bruteforce(nS, seen, nexttrivials, depth + 1):
                     return True
-                elif out is None:
-                    ret = None
-        return ret
+        return False
 
+    # Those are all remaining trivial reactions.
+    trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
     for i, frxn in enumerate(fcrn):
-        # build fr for this formal reaction
-        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
-
-        ist = cnstr(frxn[0])
-        # At this point, "ist" contains an exhaustive and sufficient list of
-        # possible initial implementation states in which the current formal
-        # reaction #i must be able to fire (via a series of trivial reactions),
-        # Note that we will only want to test states in "ist" that interpret to
-        # a state in which #i can fire.
-
-        tested = []  # to avoid testing a superset of some state that's already been tested
-        spaceefficient = True # ... but only if we have space to store them
-        for j in ist:
-            tmp = interpret(j,intrp)
-            if msleq(frxn[0], tmp):  # only test if reactants j interpret to allow #i to fire
-                t = False
-                for k in tested:
-                    # will be a 0-length loop if spaceefficient
-                    if msleq(k, j):
-                        t = True
-                        break
-                if t:
-                    continue
-                hasht = set([])
-                found = reactionsearch(j, 0)
-                if not found: 
-                    return False, (frxn, j)
-                elif not spaceefficient:
-                    tested.append(j)
+        # find implementations for this formal reaction
+        implementations = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+        for S0 in minimal_implementation_states(frxn[0], inter):
+            assert is_contained(frxn[0], interpretL(S0, inter))
+            found = bruteforce(S0, set(), trivial_rxns)
+            if not found: 
+                log.info(f'Exiting with {S0=} at {frxn=}')
+                return False, S0
     return True, 0
 
 def check_permissive_loopsearch(fcrn, icrn, fs, inter):
     """ The 'loopsearch' algorithm to check the permissive condition. 
+
+    TODO: Acutally this is a very different algorithm then described
+    in the paper, so we will have to go back and see what the exact
+    complexity of this algorithm is.
+
     """
     sicrn = subst(icrn, inter, counter = False)
     T = updateT(fcrn, sicrn, fs, counter = False)
@@ -487,105 +455,138 @@ def check_permissive_loopsearch(fcrn, icrn, fs, inter):
 
     # Potential null species.
     nulls = [k for k, v in inter.items() if len(v) == 0]
+    log.debug(f'{nulls=}')
 
     # Those are all remaining trivial reactions.
     trivial_rxns = [irxn for e, irxn in enumerate(icrn) if T[e][-1]]
 
-    def midsearch(start, goal, pickup, ignore, fstates, k):
-        # search for a path from start to goal (states of non-null species)
-        #  which produces at least pickup null species
-        #  assuming it already has infinite copies of everything in ignore
-        #  of length at most 2^k
-        # if goal is None, the goal is any reaction in fr
-        if goal is not None:
-            if ignore.issuperset(subtractL(list(goal), start, False)):
-                return True
-            if not is_contained(interpretL(goal, inter), 
-                                interpretL(start, inter)):
-                return False
-
-        if k == 0:
-            if goal is None:
-                for rx in fr:
-                    if ignore.issuperset(subtractL(rx[0], start, False)):
-                        return True
-                return False
-            
-            for rx in trivial_rxns:
-                if ignore.issuperset(subtractL(rx[0], start, False)):
-                    # every element of rx[0] - start (multiset)
-                    #  is also an element of ignore (set)
-                    # e.g. true on rx[0] - start = {|a,a,b|}, ignore = {a,b,c}
-                    if is_contained(goal, subtractL(start, rx[0], False) + rx[1]):
-                        return True
-
-        else:
-            if midsearch(start, goal, pickup, ignore, fstates, k-1):
-                return True
-            for part in subsetsL(pickup):
-                for mid in fstates:
-                    if midsearch(start, mid, set(part), ignore, fstates, k-1) \
-                       and ((not is_contained(interpretL(start, inter), interpretL(mid, inter))) or
-                            midsearch(mid,goal,pickup-set(part),ignore, fstates,k-1)):
-                        return True
-
-        return False
-
-    def loopsearch(start, fstates):
-        # search for a path from start to any reaction in fr
-        rounds, roundequiv = 0, 1
-        for nequiv, point in enumerate(fstates, 1):
-            if nequiv > roundequiv:
-                rounds += 1
-                roundequiv *= 2
-
-        for parti in enumL(len(nulls) + 1, nulls):
-            log.debug(f'{parti=}')
-            part = list(map(set, parti))
-            if any([part[i] != set() and part[i+1] == set() for i in range(len(part) - 2)]):
-                continue # avoid redundancy
-
-            pickups = [_f for _f in part[:-1] if _f is not None]
-            place = start
+    def reach_with_inf(start, goal = None, pickup = None, ignore = None, k = 0):
+        """
+        Search for a path from start to goal (states of non-null species) which
+        produces at least pickup null species assuming it already has infinite
+        copies of everything in ignore of length at most 2^k if goal is None,
+        the goal is any reaction in implementations.
+        
+        Args:
+            start: an implementation state corresponding to a formal state.
+            goal: a (different) implementation state corresponding to the same
+                formal state, or None. If goal is None, then the goal is to find
+                any implementation reaction corresponding to the formal reaction.
+            pickup: xxx Something related to null species.
+            ignore: Assuming there exist infinite copies of those species.
+            k: Maximum search depth.
+        """
+        log.debug(f'CHECK: {start=} {goal=} {ignore=} {pickup=} {k=}')
+        if ignore is None:
             ignore = set()
-            for pickup in pickups:
-                for base in fstates:
-                    if midsearch(place, base, set(), ignore, fstates, rounds):
-                        if not is_contained(interpretL(place, inter), 
-                                            interpretL(base, inter)):
-                            return True
-                        elif midsearch(base, base, pickup, ignore, fstates, rounds):
-                            place = base
-                            break
-                else:
-                    break
-                ignore |= pickup
-            else:
-                if midsearch(place, None, set(), ignore, fstates, rounds):
+        if pickup is None:
+            pickup = []
+
+        #log.debug(f'{start=} {goal=} {ignore=}, {pickup=}, {k=}')
+        if goal is None: 
+            # Check if a implementation reaction is possible.
+            for irxn in implementations:
+                # if irxn can happen: 
+                if ignore >= set(subtractL(irxn[0], start, False)):
+                    log.debug(f'True formal {irxn=}')
                     return True
+        elif k == 0:
+            # See if start can reach a pickup goal by trivial reactions.
+            for irxn in trivial_rxns:
+                # if irxn can happen: 
+                if ignore >= set(subtractL(irxn[0], start, False)):
+                    # and if goal is contained in the results of the trivial rxn.
+                    if is_contained(goal+pickup, subtractL(start, irxn[0], False) + irxn[1]):
+                        return True
+        else:
+            if reach_with_inf(start, goal, pickup, ignore, k-1):
+                # If we can reach goal with trivial reactions, do it!
+                log.debug(f'Shortcut {start=} {goal=} {pickup=} {ignore=} {k=}')
+                return True
+
+            # Divide the search into two by choosing a new state mid: 
+            #   - find path from start to mid.
+            #   - find path from mid to goal.
+            for pickpart in map(list, subsetsL(pickup)):
+              for mid in M:
+                if mid == start or mid == goal: 
+                    continue
+                log.debug(f'Reach w inf: {start=} {mid=} {goal=} {pickpart=} {k=}')
+                if reach_with_inf(start, mid, pickpart, ignore, k-1):
+                    if reach_with_inf(mid, goal, subtractL(pickup, pickpart), ignore, k-1):
+                        return True
+        log.debug(f'FALSE: {start=} {goal=} {ignore=} {pickup=} {k=}')
         return False
 
-    mode = 'time-efficient'
     for i, frxn in enumerate(fcrn):
-        # build fr for this formal reaction
-        fr = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+        # find implementations for this formal reaction
+        implementations = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
+        # From the paper M(r) is the set of minimal implementation states for a formal reaction r.
+        M = list(map(sorted, minimal_implementation_states(frxn[0], inter)))
 
-        fstates = list(map(sorted, formal_states(frxn[0], inter)))
-        tested = []  # to avoid testing a superset of some state that's already been tested
-        for fstate in fstates:
-            # The formal reaction can happen.
-            if is_contained(frxn[0], interpretL(fstate, inter)):
-                for k in tested:
-                    # TODO: might make sense to sort those states, right?
-                    if is_contained(k, list(fstate)):
-                        break
-                else:
-                    hasht = set([])
-                    if loopsearch(fstate, fstates):
-                        if mode == 'time-efficient':
-                            tested.append(fstate)
-                    else:
-                        return False, (frxn, fstate)
+        k, roundequiv = 0, 1
+        for nequiv in range(1, len(M)+1):
+            if nequiv > roundequiv:
+                k += 1
+                roundequiv *= 2
+        log.debug(f'LS: {k=} to find paths between {M} states: {frxn=}')
+
+        mode = 'time-efficient'
+        tested = []  # avoid testing a superset of states that have already been tested
+        for S0 in M:
+            # The formal reaction must be able to happen.
+            assert is_contained(frxn[0], interpretL(S0, inter))
+
+            # TODO: might it make sense to work on sorted M then?
+            if any(is_contained(k, list(S0)) for k in tested):
+                log.debug(f'Is {k=} in {tested=}?')
+                continue
+
+            # Is the formal reaction possible w/o null species? 
+            if reach_with_inf(S0, None):
+                # This state can exit by itself.
+                if mode == 'time-efficient':
+                    tested.append(S0)
+                continue
+
+            found = False
+            reset = True
+            ignore = set()
+            # Can we reach a state from where the formal reaction is possible?
+            while reset:
+                log.debug(f'{reset=}, {found=}, {ignore=}')
+                reset = False
+
+                for pickup in map(list, nulls):
+                    if set(pickup) & ignore:
+                        continue
+                    assert len(pickup) != 0
+                    log.debug(f'{S0=}, {pickup=}, {ignore=}, {k=} ')
+
+                    if reach_with_inf(S0, S0, pickup, ignore, k):
+                        log.debug(f'Pickup! {S0=} {pickup=} {ignore=}.')
+                        ignore |= set(pickup)
+                        reset = True
+                        if reach_with_inf(S0, None, ignore = ignore):
+                            found = True
+                            break
+
+                for Si in M:
+                    if Si == S0: 
+                        continue
+                    log.debug(f'Testing: {S0=} {Si=} {ignore=} {k=}.')
+                    if reach_with_inf(S0, Si, ignore = ignore, k = k):
+                        log.debug(f'True: {S0=} {Si=} {ignore=} {k=}.')
+                        if reach_with_inf(Si, None, ignore = ignore):
+                            log.debug(f'Found exit: {Si=}.')
+                            found = True
+                            break
+                if found is True:
+                    break
+
+            tested.append(S0)
+            if not found:
+                return False, S0
     return True, 0
 
 def check_permissive_graphsearch(fcrn, icrn, fs, inter):
@@ -618,7 +619,7 @@ def check_permissive_graphsearch(fcrn, icrn, fs, inter):
         # The implementation reactions for this formal reaction.
         implementations = [irxn for e, irxn in enumerate(icrn) if T[e][i]]
         # All implementation states which must permit the formal reaction.
-        fstates = list(map(tuple, map(sorted, formal_states(frxn[0], inter))))
+        fstates = list(map(tuple, map(sorted, minimal_implementation_states(frxn[0], inter))))
         done = set() # set of species known to implement the current formal rxn.
         todo = {fstate: [set(), set()] for fstate in fstates}
         # todo[fstate] = [set(nulls), set(reachable)]
@@ -673,28 +674,38 @@ def check_permissive_graphsearch(fcrn, icrn, fs, inter):
         
 def passes_permissive_condition(fcrn, icrn, fs, intrp, permcheck = 'graphsearch'):
     """
+    The difficulty of checking the permissive condition scales with the number
+    of minimal states for any given formal reaction r = (R, P), which typically
+    scales like (and scales no worse than) n**k where n = |S'| (the species of
+    the implementation CRN) and k = |R|. 
+    
+    (There may be order n**k minimal implementation states for r and the
+    trajectories by which any one implements r may have to pass through most or
+    all of them.  When k is unbounded, checking an interpretation is
+    PSPACE-complete.)
+
+    We provide three algorithms: 
+        * The loopsearch algorithm, which runs in poly(n, k) space and poly(n**(kn)) time.
+        * The graphsearch algorithm which takes poly(n**k) space and time. 
+
+    In practice, many CRNs have large numbers of species but small numbers of
+    reactants per (formal) reaction. For those CRNs, we recommend the
+    graphsearch algorithm which is faster than the loopsearch algorithm when k
+    is small but taking much more space when k is large.
     """
     log.debug(f'Checking permissive condition using {permcheck=}.')
 
+    # Convert to list format.
+    fcrn = [rl(frxn) for frxn in fcrn]
+    icrn = [rl(irxn) for irxn in icrn]
+    inter = inter_list(intrp)
+
     if permcheck == 'graphsearch':
-        # Convert to list format.
-        fcrn = [rl(frxn) for frxn in fcrn]
-        icrn = [rl(irxn) for irxn in icrn]
-        inter = inter_list(intrp)
         passes, info = check_permissive_graphsearch(fcrn, icrn, fs, inter)
     elif permcheck == 'loopsearch':
-        if False:
-            print(f'WARNING: {permcheck=} has a bug (old version).')
-            from .deprecated import permissive
-            passes, info = permissive(fcrn, icrn, fs, intrp, permcheck)
-        else:
-            print(f'WARNING: {permcheck=} has a bug.')
-            fcrn = [rl(frxn) for frxn in fcrn]
-            icrn = [rl(irxn) for irxn in icrn]
-            inter = inter_list(intrp)
-            passes, info = check_permissive_loopsearch(fcrn, icrn, fs, inter)
-    elif permcheck == 'reactionsearch':
-        passes, info = check_permissive_reactionsearch(fcrn, icrn, fs, intrp)
+        passes, info = check_permissive_loopsearch(fcrn, icrn, fs, inter)
+    elif permcheck == 'bruteforce':
+        passes, info = check_permissive_bruteforce(fcrn, icrn, fs, inter)
     else:
         raise SystemExit(f'Unknown algorithm for permissive condition: {permcheck}')
 
@@ -981,37 +992,34 @@ def crn_bisimulations(fcrn, icrn,
                       interpretation = None,
                       formals = None, 
                       searchmode = 'time-efficient',
-                      permissive = 'graphsearch',
-                      permissive_depth = None):
+                      permissive = 'graphsearch'):
     """ Iterate over all crn bisimulations.
 
     for e, bisim in enumerate(crn_bisimulations(fcrn, icrn), 1):
         print(f'Bisimulation {e} = {bisim}')
 
-    Arguments:
+    Args:
         fcrn (list): A formal CRN.
         icrn (list): An implementation CRN.
-        interpretation (dict, optional): A (partial) interpretation of 
-            the format interpretation[is] = list[fs,..].
-            Defaults to None. 
-        formals (set, optional): The set of formal species. Defaults to all
-            species in the formal CRN.
+        interpretation (dict, optional): A (partial) interpretation with the
+            format interpretation[is] = list[fs,..]. Defaults to None. 
+        formals (set, optional): The set of formal species. 
+            Defaults to None: all species in the formal CRN.
         permissive (string, optional): Select the method to check the
             permissive condition:
              - 'graphsearch': construct a reachability graph for each formal
-                reaction.  Uses poly(n^k) space and time, where n is size of
-                CRN and k is number of reactants in formal reaction.
+               reaction.  Uses poly(n^k) space and time, where n is size of
+               implementation CRN and k is the maximum number of reactants in
+               any formal reaction.
              - 'loopsearch': search for productive loops with space-efficient
-                algorithm.  Uses poly(n,k) space and poly(2^n,2^k) time.
-             - 'reactionsearch': depth-first search for a path to implement each
-                formal reaction.  Space and time bounds not known, but probably worse.
-            Defaults to graphsearch.
-        permissive_depth (int, optional): A bound on a quantity which is
-            approximately the length of a path to search for, but depends on
-            which algorithm is used. Defaults to None.
-
-    Outputs:
-        Yields all correct CRN bisimulations, or None if no CRN bisimulation exists.
+                algorithm. Uses poly(n, k) space and poly(2^n, 2^k) time.
+             - 'bruteforce': a depth-first search for a path to implement each
+               formal reaction. Space and time bounds are not known, but
+               probably worse than 'graphsearch' and 'loopsearch'.
+            Defaults to None: 'graphsearch' or 'loopsearch' dependent on the
+                values of n and k.
+    Yields:
+        All correct interpretations (CRN bisimulations).
     """
     if searchmode not in ('time-efficient', 'space-efficient'):
         raise CRNBisimulationError(f'Unsupported CRN-bisimulation search mode: {searchmode}')
@@ -1020,7 +1028,7 @@ def crn_bisimulations(fcrn, icrn,
     if formals is None:
         formals = set().union(*[set().union(*rxn[:2]) for rxn in fcrn])
 
-    log.debug('Testing:')
+    log.debug(f'Finding CRN bisimulations using {permissive} algorithm:')
     log.debug('Original formal CRN:')
     [log.debug('  {}'.format(pretty_rxn(r))) for r in fcrn]
     log.debug('Original implementation CRN:')
@@ -1030,10 +1038,10 @@ def crn_bisimulations(fcrn, icrn,
     if icrn == []: # Empty implementation CRN!
         yield {} if fcrn == [] else [{}, 0, [[], []]]
 
-    if permissive not in ['graphsearch', 'loopsearch', 'reactionsearch']:
+    if permissive not in ['graphsearch', 'loopsearch', 'bruteforce']:
         raise CRNBisimulationError('Uknown option: {}'.format(
             'the permissive test should be {}'.format(
-            '"graphsearch", "loopsearch", or "reactionsearch".')))
+            '"graphsearch", "loopsearch", or "bruteforce".')))
     new = []
     for [r, p] in icrn:
         nr = [deformalize(k, formals) for k in r]
@@ -1046,10 +1054,6 @@ def crn_bisimulations(fcrn, icrn,
                                                 } if interpretation else {}
     log.debug('Internal interpretation:')
     [log.debug('  {}: {}'.format(k,v)) for (k, v) in inter.items()]
-
-    if permissive_depth:
-        permissive = [permissive, permissive_depth]
-    log.debug(f'Permissive argument: {permissive}')
 
     # Last point to move to internal data structures ...
     fcrn = [[Counter(part) for part in rxn] for rxn in fcrn]
@@ -1070,8 +1074,7 @@ def crn_bisimulations(fcrn, icrn,
 def modular_crn_bisimulation_test(fcrns, icrns, formals, 
                                   interpretation = None, 
                                   searchmode = 'time-efficient',
-                                  permissive = 'graphsearch',
-                                  permissive_depth = None):
+                                  permissive = 'graphsearch'):
     """ Check if a modulular CRN bisimulation exists. 
 
     Note: There are a few modifications to the original source:
@@ -1116,8 +1119,7 @@ def modular_crn_bisimulation_test(fcrns, icrns, formals,
                                        interpretation = minter, 
                                        formals = mfs, 
                                        searchmode = searchmode,
-                                       permissive = permissive, 
-                                       permissive_depth = permissive_depth):
+                                       permissive = permissive):
             # Get all formal and implementation species that are in
             # common with at least one other module.
             fsc = {f for f, m in fspc.items() if e in m and len(m) > 1}
@@ -1134,8 +1136,7 @@ def modular_crn_bisimulation_test(fcrns, icrns, formals,
 def crn_bisimulation_test(fcrn, icrn, formals, 
                           interpretation = None,
                           searchmode = 'time-efficient',
-                          permissive = 'graphsearch',
-                          permissive_depth = None):
+                          permissive = 'graphsearch'):
     """ Backward compatible CRN bisimulation interface.
 
     Args:
@@ -1148,8 +1149,7 @@ def crn_bisimulation_test(fcrn, icrn, formals,
                                  interpretation = interpretation,
                                  formals = formals, 
                                  searchmode = searchmode,
-                                 permissive = permissive,
-                                 permissive_depth = permissive_depth)
+                                 permissive = permissive)
 
     try:
         bisim = next(iterator)

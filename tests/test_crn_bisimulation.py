@@ -5,7 +5,7 @@
 #
 import logging
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 import unittest
 
@@ -17,7 +17,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           crn_bisimulation_test, 
                                           modular_crn_bisimulation_test,
                                           # HelperTests
-                                          formal_states,
+                                          minimal_implementation_states,
                                           subsetsL, 
                                           enumL, 
                                           same_reaction, 
@@ -37,7 +37,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           subst) 
 
 SKIP_SLOW = True
-SKIP_DEBUG = True
+SKIP_DEBUG = False
 
 def rl(rxn):
     return [list(part.elements()) for part in rxn]
@@ -60,6 +60,9 @@ class JustCuriousTests(unittest.TestCase):
             for e, b in enumerate(bisims, 1):
                 print(e, b)
         assert len(bisims) == 4
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
     def test_me_quickly_02(self):
         fcrn = " -> A"
@@ -72,6 +75,9 @@ class JustCuriousTests(unittest.TestCase):
         assert len(bisims) == 2
         assert b1 in bisims
         assert b2 in bisims
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
     def test_me_quickly_03(self):
         fcrn = " -> A"
@@ -88,6 +94,9 @@ class JustCuriousTests(unittest.TestCase):
         assert len(bisims) == 2
         assert b1 in bisims
         assert b2 in bisims
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
     def test_me_quickly_04(self):
         fcrn = "A -> "
@@ -104,6 +113,9 @@ class JustCuriousTests(unittest.TestCase):
         assert len(bisims) == 2
         assert b1 in bisims
         assert b2 in bisims
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
     def test_me_quickly_false(self):
         fcrn = "A + B -> C"
@@ -112,6 +124,9 @@ class JustCuriousTests(unittest.TestCase):
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
         assert len(bisims) == 0
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
         fcrn = " -> A"
         icrn = " y -> a"
@@ -119,24 +134,27 @@ class JustCuriousTests(unittest.TestCase):
         icrn, _ = parse_crn(icrn)
         bisims = list(crn_bisimulations(fcrn, icrn))
         assert len(bisims) == 0
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'loopsearch'))
+        assert bisims == list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class HelperTests(unittest.TestCase):
     """ Helper functions for CRN bisimulation:
-      - formal_states (TODO)
+      - minimal_implementation_states
       - subsetsL
       - enumL
       - same_reaction
       - updateT
       - checkT
     """
-    def test_formal_states_exact(self):
+    def test_minimal_implementation_states_exact(self):
         state = []
         inter = {'a': ['A'], 
                  'b': ['B'],
                  'x': ['A', 'B'],
                  'y': ['A', 'A']}
-        assert list(formal_states(state, inter)) == [[]]
+        assert list(minimal_implementation_states(state, inter)) == [[]]
 
         state = ['A']
         inter = {'a': ['A'], 
@@ -144,20 +162,29 @@ class HelperTests(unittest.TestCase):
                  'x': ['A', 'B'],
                  'y': ['A', 'A']}
         minis = [['a'], ['x'], ['y']]
-        assert list(formal_states(state, inter)) == minis
+        assert list(minimal_implementation_states(state, inter)) == minis
 
-    def test_formal_states_supersets(self):
-        # TODO: those calls return more than the necessary 
-        # minimal formal states. Does that matter?
+    def test_minimal_implementation_states_supersets(self):
+        # NOTE: these used to return supersets, but now
+        # that should be fixed.
         state = ['A', 'A']
         inter = {'a': ['A'], 
                  'b': ['B'],
                  'x': ['A', 'B'],
                  'y': ['A', 'A']}
         minis = [['a', 'a'], ['a', 'x'], ['x', 'x'], ['y']]
-        supfs = list(map(sorted, formal_states(state, inter))) 
+        supfs = list(map(sorted, minimal_implementation_states(state, inter))) 
         assert all(sorted(m) in supfs for m in minis)
-        assert len(minis) < len(supfs)
+        assert len(minis) == len(supfs)
+
+        state = []
+        inter = {'a': [], 
+                 'b': []}
+        minis = [[]]
+        supfs = list(map(sorted, minimal_implementation_states(state, inter))) 
+        assert all(sorted(m) in supfs for m in minis)
+        assert len(minis) == len(supfs)
+
 
         state = ['A', 'B']
         inter = {'a': ['A'], 
@@ -165,9 +192,9 @@ class HelperTests(unittest.TestCase):
                  'c': ['C'],
                  'x': ['A', 'B']}
         minis = [['a', 'b'], ['x']]
-        supfs = list(map(sorted, formal_states(state, inter))) 
+        supfs = list(map(sorted, minimal_implementation_states(state, inter))) 
         assert all(sorted(m) in supfs for m in minis)
-        assert len(minis) < len(supfs)
+        assert len(minis) == len(supfs)
 
         state = ['A', 'B', 'A']
         inter = {'a': ['A'], 
@@ -175,9 +202,9 @@ class HelperTests(unittest.TestCase):
                  'c': ['C'],
                  'x': ['A', 'B']}
         minis = [['a', 'a', 'b'], ['x', 'a'], ['x', 'x']]
-        supfs = list(map(sorted, formal_states(state, inter))) 
+        supfs = list(map(sorted, minimal_implementation_states(state, inter))) 
         assert all(sorted(m) in supfs for m in minis)
-        assert len(minis) < len(supfs)
+        assert len(minis) == len(supfs)
 
     def test_subsets(self):
         #['A']      => [[], ['A']]
@@ -458,7 +485,7 @@ class HelperTests(unittest.TestCase):
                  [False, True, False]]
         assert checkT(table) is True
 
-#@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
+@unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ConditionTests(unittest.TestCase):
     def test_atomic_01(self):
         fs = set(['A', 'B', 'C'])
@@ -496,7 +523,7 @@ class ConditionTests(unittest.TestCase):
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         assert passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert passes
 
     def test_permissive_02(self):
@@ -511,9 +538,9 @@ class ConditionTests(unittest.TestCase):
         inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
-        #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
-        #assert not passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert not passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert not passes
 
     def test_permissive_03(self):
@@ -530,7 +557,7 @@ class ConditionTests(unittest.TestCase):
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         assert passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert passes
 
 
@@ -541,7 +568,36 @@ class ConditionTests(unittest.TestCase):
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         assert passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
+        assert passes
+
+    def test_permissive_03b(self):
+        fcrn = " -> A"
+        icrn = " -> x; -> y; x + y -> a"
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter = {'a' : ['A'],
+                 'x' : [],
+                 'y' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
+        assert passes
+
+        inter = {'a' : ['A'],
+                 'x' : ['A'],
+                 'y' : []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert passes
 
     def test_permissive_04(self):
@@ -559,7 +615,7 @@ class ConditionTests(unittest.TestCase):
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         assert passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert passes
 
     def test_permissive_05(self):
@@ -578,11 +634,8 @@ class ConditionTests(unittest.TestCase):
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         assert passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert passes
-        #print(passes_permissive_condition(fcrn, icrn, fs, inter))
-        #print(passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch'))
-        #print(passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch'))
 
     def test_permissive_06(self):
         fcrn = "A + B -> C + D"
@@ -595,12 +648,42 @@ class ConditionTests(unittest.TestCase):
         inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
-        #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
-        #assert not passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert not passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert not passes
 
     def test_permissive_07(self):
+        # JDW 2019
+        fcrn = "A + B -> C"
+        icrn = """ a1 <=> a2
+                   a2 + b1 <=> ab
+                   ab -> a1 + b1 + 2z
+                   b1 + 3z -> b2
+                   a1 + b2 + 2z -> c1
+                   a2 + b2 -> c2
+               """
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        fcrn = [rc(rxn) for rxn in fcrn]
+        icrn = [rc(rxn) for rxn in icrn]
+        inter={'a1': ['A'], 
+               'a2': ['A'], 
+               'b1': ['B'],
+               'b2': ['B'], 
+               'ab': ['A', 'B'], 
+               'c1': ['C'], 
+               'c2': ['C'], 
+               'z': []}
+        inter = inter_counter(inter)
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
+        assert passes
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
+        assert passes
+
+    def test_permissive_08(self):
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter = {'i{A}': ['A'], 
@@ -635,9 +718,8 @@ class ConditionTests(unittest.TestCase):
         assert not passes
         #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
         #assert not passes
-        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'reactionsearch')
+        passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'bruteforce')
         assert not passes
-
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestColumnSearch(unittest.TestCase):
@@ -994,19 +1076,13 @@ class FastBisimulationTests(unittest.TestCase):
         ecrn, _ = parse_crn(ecrn)
         partial = {sp: [sp] for sp in fs}
 
-        v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
-                                     interpretation = partial,
-                                     permissive = 'graphsearch')
+        v, i = crn_bisimulation_test(fcrn, ecrn, fs, interpretation = partial, permissive = 'graphsearch')
         self.assertTrue(v)
 
-        v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
-                                     interpretation = partial,
-                                     permissive = 'loopsearch')
+        v, i = crn_bisimulation_test(fcrn, ecrn, fs, interpretation = partial, permissive = 'loopsearch')
         self.assertTrue(v)
 
-        v, i = crn_bisimulation_test(fcrn, ecrn, fs, 
-                                     interpretation = partial,
-                                     permissive = 'reactionsearch')
+        v, i = crn_bisimulation_test(fcrn, ecrn, fs, interpretation = partial, permissive = 'bruteforce')
         self.assertTrue(v)
 
         # A function that does not say so, should not modify its arguments.
@@ -1069,7 +1145,7 @@ class FastBisimulationTests(unittest.TestCase):
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter1,
-                                      permissive = 'reactionsearch')
+                                      permissive = 'bruteforce')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
@@ -1088,7 +1164,7 @@ class FastBisimulationTests(unittest.TestCase):
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = inter1,
-                                      permissive = 'reactionsearch')
+                                      permissive = 'bruteforce')
         self.assertTrue(v)
         self.assertDictEqual(inter1, i1)
 
@@ -1107,7 +1183,7 @@ class FastBisimulationTests(unittest.TestCase):
 
         v, i2 = crn_bisimulation_test(fcrn, icrn, fs, 
                                       interpretation = pinter2,
-                                      permissive = 'reactionsearch')
+                                      permissive = 'bruteforce')
         self.assertTrue(v)
         self.assertDictEqual(inter2, i2)
 
@@ -1130,18 +1206,22 @@ class FastBisimulationTests(unittest.TestCase):
         self.assertTrue(v)
 
         # Test wrong partial interpretation
-        partial = dict()
-        partial['x2'] = ['B', 'D']
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = partial,
-                                     permissive = 'loopsearch')
+        partial = {'x2': ['B', 'D']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'graphsearch')
+        self.assertTrue(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'loopsearch')
+        self.assertTrue(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'bruteforce')
         self.assertTrue(v)
 
         partial['x3'] = ['C']
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = partial,
-                                     permissive = 'loopsearch')
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'graphsearch')
         self.assertFalse(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'loopsearch')
+        self.assertFalse(v)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'bruteforce')
+        self.assertFalse(v)
+
 
     def test_example_04(self):
         # Two valid interpretations
@@ -1160,8 +1240,7 @@ class FastBisimulationTests(unittest.TestCase):
         ipart1 = {'B': ['B'],
                   'x2': ['B', 'B']}
 
-        v, i1 = crn_bisimulation_test(fcrn, icrn, fs, 
-                                      interpretation = ipart1)
+        v, i1 = crn_bisimulation_test(fcrn, icrn, fs, interpretation = ipart1)
         self.assertTrue(v)
         self.assertDictEqual(i1, ifull1)
 
@@ -1174,8 +1253,7 @@ class FastBisimulationTests(unittest.TestCase):
         ipart2 = {'B': ['B'],
                   'x2': ['B']}
 
-        v, i2 = crn_bisimulation_test(fcrn, icrn, fs, 
-                                      interpretation = ipart2)
+        v, i2 = crn_bisimulation_test(fcrn, icrn, fs, interpretation = ipart2)
         self.assertTrue(v)
         self.assertDictEqual(i2, ifull2)
 
@@ -1227,9 +1305,9 @@ class FastBisimulationTests(unittest.TestCase):
                  'i227': ['Y']}
 
         v, i1 = crn_bisimulation_test(fcrn, icrn, fs, interpretation=inter)
-        assert v is False
+        assert not v 
 
-    def test_QingDong_crn6_i02(self):
+    def test_QingDong_crn6_i02_gs_bf(self):
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter_02 = {'i842': ['Y', 'X', 'A'],
@@ -1245,13 +1323,9 @@ class FastBisimulationTests(unittest.TestCase):
                                      interpretation = inter_02, 
                                      permissive = 'graphsearch')
         self.assertTrue(v)
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs,
-                                     interpretation = inter_02, 
-                                     permissive = 'loopsearch')
-        self.assertTrue(v)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = inter_02, 
-                                     permissive = 'reactionsearch')
+                                     permissive = 'bruteforce')
         self.assertTrue(v)
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
@@ -1353,7 +1427,7 @@ class SlowBisimulationTests(unittest.TestCase):
                                      permissive = 'graphsearch')
         self.assertTrue(v)
 
-    def test_QingDong_crn6_i1_rs(self):
+    def test_QingDong_crn6_i1_bf(self):
         # NOTE: around 3 minutes
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
@@ -1364,7 +1438,38 @@ class SlowBisimulationTests(unittest.TestCase):
                     'i73': ['B']}
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
                                      interpretation = inter_01, 
-                                     permissive = 'reactionsearch')
+                                     permissive = 'bruteforce')
+        self.assertTrue(v)
+
+    def test_QingDong_crn6_gs(self):
+        # NOTE: less than 5 min.
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        # These tests complete in less than 10 minutes
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
+        self.assertTrue(v)
+
+    def test_QingDong_crn6_bf(self):
+        # NOTE: less than 10 min.
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'bruteforce')
+        self.assertTrue(v)
+
+    def dtest_QingDong_crn6_i02_ls(self):
+        # TODO: does not finish ... probably a bug!
+        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
+        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
+        inter_02 = {'i842': ['Y', 'X', 'A'],
+                    'i394': ['X', 'Y', 'X'],
+                    'i119': ['X', 'B', 'A'],
+                    'i2300': ['A', 'C'],
+                    'i778': ['Y'],
+                    'i575': ['X'],
+                    'i599': ['C'],
+                    'i2232': ['A'],
+                    'i73': ['B']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = inter_02, permissive = 'loopsearch')
         self.assertTrue(v)
 
     def dtest_QingDong_crn6_i1_ls(self):
@@ -1381,23 +1486,8 @@ class SlowBisimulationTests(unittest.TestCase):
                                      permissive = 'loopsearch')
         self.assertTrue(v)
 
-    def test_QingDong_crn6_gs(self):
-        # NOTE: less than 5 min.
-        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
-        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
-        # These tests complete in less than 10 minutes
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
-        self.assertTrue(v)
-
-    def test_QingDong_crn6_rs(self):
-        # NOTE: less than 10 min.
-        fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
-        icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'reactionsearch')
-        self.assertTrue(v)
-
     def dtest_QingDong_crn6_ls(self):
-        # TODO: test again after i1 terminates.
+        # TODO: test again after i1 and i2 terminate.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
