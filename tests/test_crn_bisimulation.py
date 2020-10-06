@@ -9,7 +9,6 @@ logger.setLevel(logging.INFO)
 
 import unittest
 
-from collections import Counter
 from crnverifier.utils import parse_crn
 from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Main interface
@@ -21,7 +20,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           subsetsL, 
                                           enumL, 
                                           same_reaction, 
-                                          updateT, 
+                                          makeT, 
                                           checkT,
                                           # ConditionTests
                                           passes_atomic_condition,
@@ -32,19 +31,10 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           search_row, 
                                           passes_modularity_condition, 
                                           # Just used
-                                          inter_counter,
-                                          inter_list,
                                           subst) 
 
 SKIP_SLOW = True
 SKIP_DEBUG = False
-
-def rl(rxn):
-    return [list(part.elements()) for part in rxn]
-
-def rc(rxn):
-    return [Counter(part) for part in rxn]
-
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class JustCuriousTests(unittest.TestCase):
@@ -145,7 +135,7 @@ class HelperTests(unittest.TestCase):
       - subsetsL
       - enumL
       - same_reaction
-      - updateT
+      - makeT
       - checkT
     """
     def test_minimal_implementation_states_exact(self):
@@ -297,13 +287,13 @@ class HelperTests(unittest.TestCase):
         irxn = "A + B -> C"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C + B"
         irxn = "A + b -> B"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
     def test_same_reaction_new(self):
         # trying to break the old code ... 
@@ -311,38 +301,38 @@ class HelperTests(unittest.TestCase):
         irxn = "A + y -> C + y"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A -> C"
         irxn = "A + y -> C + y"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
     def test_same_reaction_products(self):
         frxn = "A + B -> C + D"
         irxn = "A + B -> c"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C"
         irxn = "A + B -> c + d"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C"
         irxn = "A + B -> "
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C"
         irxn = "A + B -> C + B"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
     def test_same_reaction_reactants(self):
         # NOTE: tests include potential null species ...
@@ -350,31 +340,31 @@ class HelperTests(unittest.TestCase):
         irxn = "a -> C"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A -> C + D"
         irxn = "a + b -> C + D"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A -> C + D"
         irxn = "A + b -> C + D"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C"
         irxn = "A + B + A -> C"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
         frxn = "A + B -> C"
         irxn = "A -> C"
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
-        assert not same_reaction(icrn[0], fcrn[0], fs, counter = False)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
     def test_update_table(self):
         fcrn = "A + B -> C"
@@ -382,14 +372,14 @@ class HelperTests(unittest.TestCase):
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         table = [[True, True]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
         fcrn = "A + B -> C"
         icrn = "A + B -> C + d"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
         table = [[True, False]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
         fcrn = " -> A"
         icrn = " -> y; y <=> z; z -> a"
@@ -399,7 +389,7 @@ class HelperTests(unittest.TestCase):
                  [True, True],
                  [True, True], 
                  [True, True]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
         fcrn = " -> A"
         icrn = " -> A; A <=> A; A -> A"
@@ -409,7 +399,7 @@ class HelperTests(unittest.TestCase):
                  [False, True], 
                  [False, True],
                  [False, True]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
         fcrn = " -> A"
         icrn = " -> ;  <=> ;  -> A"
@@ -419,7 +409,7 @@ class HelperTests(unittest.TestCase):
                  [False, True],
                  [False, True],
                  [True, False]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
     def test_update_table_large(self):
         fcrn = """ A + b -> c
@@ -462,7 +452,7 @@ class HelperTests(unittest.TestCase):
                  [True,  True,  False, False, True], 
                  [False, False, False, True,  True],
                  [False, False, True,  False, True]]
-        assert updateT(fcrn, icrn, fs, counter = False) == table
+        assert makeT(fcrn, icrn, fs) == table
 
     def test_check_table(self):
         table = [[True, True]]
@@ -492,7 +482,6 @@ class ConditionTests(unittest.TestCase):
         inter = {'a' : ['B'],
                  'B' : ['A'],
                  'c' : ['C']}
-        inter = inter_counter(inter)
         assert passes_atomic_condition(inter, fs)
 
     def test_delimiting_01(self):
@@ -500,12 +489,9 @@ class ConditionTests(unittest.TestCase):
         icrn = "a + b -> c"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['B'],
                  'b' : ['A'],
                  'c' : ['C']}
-        inter = inter_counter(inter)
         assert passes_delimiting_condition(fcrn, icrn, fs, inter)
 
     def test_permissive_01(self):
@@ -513,12 +499,9 @@ class ConditionTests(unittest.TestCase):
         icrn = "a + b -> c"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['B'],
                  'b' : ['A'],
                  'c' : ['C']}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -531,11 +514,8 @@ class ConditionTests(unittest.TestCase):
         icrn = "x -> a"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['A'],
                  'x' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -548,11 +528,8 @@ class ConditionTests(unittest.TestCase):
         icrn = " -> x; x -> a"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['A'],
                  'x' : ['A']}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -563,7 +540,6 @@ class ConditionTests(unittest.TestCase):
 
         inter = {'a' : ['A'],
                  'x' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -576,12 +552,9 @@ class ConditionTests(unittest.TestCase):
         icrn = " -> x; -> y; x + y -> a"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['A'],
                  'x' : [],
                  'y' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -592,7 +565,6 @@ class ConditionTests(unittest.TestCase):
         inter = {'a' : ['A'],
                  'x' : ['A'],
                  'y' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -605,12 +577,9 @@ class ConditionTests(unittest.TestCase):
         icrn = "b -> b + x; b + 3x -> a"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'a' : ['A'],
                  'b' : ['B'],
                  'x' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -623,13 +592,10 @@ class ConditionTests(unittest.TestCase):
         icrn = "x -> y; y -> x + z; x + 3z -> b"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter = {'x' : ['A'],
                  'b' : ['B'],
                  'y' : ['A'],
                  'z' : []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -642,10 +608,7 @@ class ConditionTests(unittest.TestCase):
         icrn = "a + b -> c + d; d + c -> e + f"
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter={'a': ['B'], 'b': ['A'], 'c': [], 'd': ['A', 'B'], 'e': ['C'], 'f': ['D']}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -665,8 +628,6 @@ class ConditionTests(unittest.TestCase):
                """
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         inter={'a1': ['A'], 
                'a2': ['A'], 
                'b1': ['B'],
@@ -675,7 +636,6 @@ class ConditionTests(unittest.TestCase):
                'c1': ['C'], 
                'c2': ['C'], 
                'z': []}
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert passes
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -711,9 +671,6 @@ class ConditionTests(unittest.TestCase):
                  'i2340': [], 
                  'i2392': [], 
                  'i3032': []}
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
-        inter = inter_counter(inter)
         passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'graphsearch')
         assert not passes
         #passes, info = passes_permissive_condition(fcrn, icrn, fs, inter, 'loopsearch')
@@ -732,8 +689,6 @@ class TestColumnSearch(unittest.TestCase):
                """
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
 
         i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
         i2 = {'x2': ['A'], 'x3': ['B'], 'x4': ['C']}
@@ -748,17 +703,17 @@ class TestColumnSearch(unittest.TestCase):
         if len(cols) != 9:
             print('FAILURE:')
             for e, b in enumerate(cols, 1):
-                print(e, inter_list(b))
+                print(e, b)
         assert len(cols) == 9
-        assert inter_counter(i1) in cols
-        assert inter_counter(i2) in cols
-        assert inter_counter(i3) in cols
-        assert inter_counter(i4) in cols
-        assert inter_counter(i5) in cols
-        assert inter_counter(i6) in cols
-        assert inter_counter(i7) in cols
-        assert inter_counter(i8) in cols
-        assert inter_counter(i9) in cols
+        assert i1 in cols
+        assert i2 in cols
+        assert i3 in cols
+        assert i4 in cols
+        assert i5 in cols
+        assert i6 in cols
+        assert i7 in cols
+        assert i8 in cols
+        assert i9 in cols
 
     def test_search_column_02(self):
         fcrn = """A + B -> C + D
@@ -773,8 +728,6 @@ class TestColumnSearch(unittest.TestCase):
                   x7 -> x9 + x8"""
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         cols = list(search_column(fcrn, icrn, fs))
 
         # SB: I didn't actually check those, but you should if something goes wrong!
@@ -810,7 +763,7 @@ class TestColumnSearch(unittest.TestCase):
         if len(cols) != 28:
             print('FAILURE:')
             for e, b in enumerate(cols, 1):
-                print(e, inter_list(b))
+                print(e, b)
         assert len(cols) == 28 
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
@@ -824,74 +777,72 @@ class TestRowSearch(unittest.TestCase):
                """
         fcrn, fs = parse_crn(fcrn)
         icrn, _ = parse_crn(icrn)
-        fcrn = [rc(rxn) for rxn in fcrn]
-        icrn = [rc(rxn) for rxn in icrn]
         i1 = {'x2': ['A'], 'x3': ['B', 'C'], 'x4': []}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i1)))
+        rows = list(search_row(fcrn, icrn, fs, i1))
         assert len(rows) == 0
 
         i2 = {'x2': ['A'], 'x3': ['B'], 'x4': ['C']}
         i2r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': ['C'], 'x8': []}
         i2r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': [], 'x8': ['C']}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i2)))
+        rows = list(search_row(fcrn, icrn, fs, i2))
         if len(rows) != 2:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 2
-        assert inter_counter(i2r01) in rows
-        assert inter_counter(i2r02) in rows
+        assert i2r01 in rows
+        assert i2r02 in rows
 
         i3 = {'x2': ['A'], 'x3': ['C'], 'x4': ['B']}
         i3r01 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': [], 'x8': ['B']}
         i3r02 = {'x1': ['A'], 'x2': ['A'], 'x3': ['C'], 'x4': ['B'], 'x5': ['C'], 'x7': ['B'], 'x8': []}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i3)))
+        rows = list(search_row(fcrn, icrn, fs, i3))
         if len(rows) != 2:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 2
-        assert inter_counter(i3r01) in rows
-        assert inter_counter(i3r02) in rows
+        assert i3r01 in rows
+        assert i3r02 in rows
 
         i4 = {'x2': ['A'], 'x3': [], 'x4': ['B', 'C']}  
         i4r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
         i4r02 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i4)))
+        rows = list(search_row(fcrn, icrn, fs, i4))
         if len(rows) != 2:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 2
-        assert inter_counter(i4r01) in rows
-        assert inter_counter(i4r02) in rows
+        assert i4r01 in rows
+        assert i4r02 in rows
 
         i5 = {'x4': ['A'], 'x7': ['B', 'C'], 'x8': []} 
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i5)))
+        rows = list(search_row(fcrn, icrn, fs, i5))
         assert len(rows) == 0
 
         i6 = {'x4': ['A'], 'x7': ['B'], 'x8': ['C']}
         i6r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i6)))
+        rows = list(search_row(fcrn, icrn, fs, i6))
         if len(rows) != 1:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 1
-        assert rows[0] == inter_counter(i6r01)
+        assert rows[0] == i6r01
  
         i7 = {'x4': ['A'], 'x7': ['C'], 'x8': ['B']}
         i7r01 = {'x1': ['A'], 'x2': ['A'], 'x3': [], 'x4': ['A'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i7)))
+        rows = list(search_row(fcrn, icrn, fs, i7))
         if len(rows) != 1:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 1
-        assert rows[0] == inter_counter(i7r01)
+        assert rows[0] == i7r01
 
         i8 = {'x4': ['A'], 'x7': [], 'x8': ['B', 'C']} 
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i8)))
+        rows = list(search_row(fcrn, icrn, fs, i8))
         assert len(rows) == 0
 
         i9 = {'x1': ['A'], 'x2': ['B', 'C']} 
@@ -901,18 +852,18 @@ class TestRowSearch(unittest.TestCase):
         i9r04 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': ['B'], 'x4': ['C'], 'x5': ['B'], 'x7': [], 'x8': ['C']}
         i9r05 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['C'], 'x8': ['B']}
         i9r06 = {'x1': ['A'], 'x2': ['B', 'C'], 'x3': [], 'x4': ['B', 'C'], 'x5': [], 'x7': ['B'], 'x8': ['C']}
-        rows = list(search_row(fcrn, icrn, fs, inter_counter(i9)))
+        rows = list(search_row(fcrn, icrn, fs, i9))
         if len(rows) != 6:
             print('FAILURE:')
             for e, b in enumerate(rows, 1):
-                print(e, {k: v for k, v in sorted(inter_list(b).items())})
+                print(e, {k: v for k, v in sorted(b.items())})
         assert len(rows) == 6
-        assert inter_counter(i9r01) in rows
-        assert inter_counter(i9r02) in rows
-        assert inter_counter(i9r03) in rows
-        assert inter_counter(i9r04) in rows
-        assert inter_counter(i9r05) in rows
-        assert inter_counter(i9r06) in rows
+        assert i9r01 in rows
+        assert i9r02 in rows
+        assert i9r03 in rows
+        assert i9r04 in rows
+        assert i9r05 in rows
+        assert i9r06 in rows
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class TestSearchSpace(unittest.TestCase):
@@ -1493,14 +1444,12 @@ class SlowBisimulationTests(unittest.TestCase):
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
         self.assertTrue(v)
 
-    def dtest_qian_roessler_full(self):
-        # TODO: KILLED / OUT OF MEMORY
-        # Seems like "space-efficient still takes quite some memory, so we'll
-        # have to debug there.
+    def dtest_qian_roessler_full_gs(self):
+        # TODO: Takes longer than an overnight run!
         (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
         (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
         partial = {sp: [sp] for sp in fs}
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, searchmode = 'space-efficient')
+        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, permissive = 'graphsearch')
         self.assertTrue(v)
 
 
