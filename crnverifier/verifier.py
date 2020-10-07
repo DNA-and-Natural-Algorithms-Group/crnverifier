@@ -218,7 +218,7 @@ def main():
             import statprof
             statprof.start()
         except ImportError as err:
-            print('Cannot import statprof module.')
+            log.warning('Cannot import statprof module. (pip install statprof-smarkets.)')
             args.profile = False
 
     if args.method in ('crn-bisimulation', 'integrated-hybrid', 'compositional-hybrid'):

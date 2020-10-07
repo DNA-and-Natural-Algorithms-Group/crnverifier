@@ -95,7 +95,7 @@ Verify whether *i.crn* is a correct implementation of *f.crn* using the two supp
 ```
 
 ## Version
-0.1
+0.2
 
 ## License
 MIT
