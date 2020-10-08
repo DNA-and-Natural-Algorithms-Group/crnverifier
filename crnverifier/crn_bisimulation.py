@@ -974,7 +974,7 @@ def crn_bisimulations(fcrn, icrn,
         yield {} if fcrn == [] else [{}, 0, [[], []]]
 
     if permissive not in ['graphsearch', 'loopsearch', 'bruteforce']:
-        raise CRNBisimulationError('Uknown option: {}'.format(
+        raise CRNBisimulationError('Unknown option: {}'.format(
             'the permissive test should be {}'.format(
             '"graphsearch", "loopsearch", or "bruteforce".')))
     new = []

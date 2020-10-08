@@ -65,7 +65,7 @@ def integrated_hybrid_dev1(fcrn, icrn, fs, inter, modular = True):
                                                   interpretation = inter)
     except NoFormalBasisError as err:
         log.info("Could not find formal basis: {}".format(err))
-        return False
+        return False, inter
 
     log.debug('Raw formal basis:\n  {}'.format(
         "\n  ".join(pretty_crn(fbasis_raw))))
@@ -108,7 +108,7 @@ def integrated_hybrid_dev2(fcrn, icrn, fs, inter, modular = True):
                                                   modular = modular)
     except NoFormalBasisError as err:
         log.info("Could not find formal basis: {}".format(err))
-        return False
+        return False, inter
 
     log.debug('Interpreted formal basis:\n  {}'.format(
         "\n  ".join(pretty_crn(fbasis_raw))))
@@ -148,7 +148,7 @@ def compositional_hybrid_dev1(fcrn, icrn, fs, inter, modular = True):
         fbasis_raw, _ = get_formal_basis(icrn, set(inter.keys()), modular = modular)
     except NoFormalBasisError as err:
         log.info("Could not find formal basis: {}".format(err))
-        return False
+        return False, inter
 
     log.debug('Raw formal basis:\n  {}'.format("\n  ".join(pretty_crn(fbasis_raw))))
     return sorted(fcrn) == sorted(clean_crn(fbasis_raw, inter = inter)), inter
@@ -187,7 +187,7 @@ def compositional_hybrid_dev2(fcrn, icrn, fs, inter, modular = True):
         fbasis_raw, _ = get_formal_basis(icrn, set(inter.keys()), modular = modular)
     except NoFormalBasisError as err:
         log.info("Could not find formal basis: {}".format(err))
-        return False
+        return False, inter
 
     log.debug('Raw formal basis:\n  {}'.format("\n  ".join(pretty_crn(fbasis_raw))))
 
