@@ -1173,7 +1173,6 @@ class FastBisimulationTests(unittest.TestCase):
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial, permissive = 'bruteforce')
         self.assertFalse(v)
 
-
     def test_example_04(self):
         # Two valid interpretations
         fcrn = "B + B -> B"
@@ -1278,6 +1277,16 @@ class FastBisimulationTests(unittest.TestCase):
                                      interpretation = inter_02, 
                                      permissive = 'bruteforce')
         self.assertTrue(v)
+
+    def test_wrong_init(self):
+        fcrn = " -> A "
+        icrn = """A_1_ + i8 <=> 
+                  i8 ->"""
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        inter = {'A_1_' : ['A']}
+        v, _ = crn_bisimulation_test(fcrn, icrn, fs, inter)
+        assert v is False
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ModularBisimulationTests(unittest.TestCase):

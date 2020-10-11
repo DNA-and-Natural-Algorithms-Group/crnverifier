@@ -992,14 +992,17 @@ def crn_bisimulations(fcrn, icrn,
 
 
     log.info(f'Searching for bisimulation.')
-    for parti in search_column(fcrn, icrn, formals, inter):
-        try:
-            for bisim in search_row(fcrn, icrn, formals, parti, 
-                                    mode = searchmode,
-                                    permcheck = permissive):
-                yield formalize(bisim)
-        except SpeciesAssignmentError:
-            continue
+    try: # Needed if you start with a wrong partial interpretation.
+        for parti in search_column(fcrn, icrn, formals, inter):
+            try:
+                for bisim in search_row(fcrn, icrn, formals, parti, 
+                                        mode = searchmode,
+                                        permcheck = permissive):
+                    yield formalize(bisim)
+            except SpeciesAssignmentError:
+                continue
+    except SpeciesAssignmentError:
+        pass
     return
 
 def modular_crn_bisimulation_test(fcrns, icrns, formals, 
