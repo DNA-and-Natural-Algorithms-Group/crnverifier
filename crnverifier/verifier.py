@@ -14,6 +14,7 @@ from crnverifier import __version__
 from crnverifier.utils import (parse_crn, 
                                pretty_crn,
                                clean_crn,
+                               crnsize,
                                remove_species, 
                                natural_sort)
 from crnverifier.crn_bisimulation import (crn_bisimulation_test, 
@@ -58,7 +59,8 @@ def get_bisimulation_inputs(fCRN, iCRN, interpretation, constants):
     """
     fcrn, fs = parse_crn(fCRN, is_file = True)
     fcrn = remove_species(fcrn, constants)
-    log.info('Input formal CRN with formal species: {}\n  {}'.format(
+    log.info('Input formal CRN of size {} with formal species: {}\n  {}'.format(
+        crnsize(fcrn),
         ", ".join(natural_sort(fs)),
         "\n  ".join(pretty_crn(fcrn))))
 

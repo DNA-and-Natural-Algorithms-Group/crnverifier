@@ -6,7 +6,8 @@ import logging
 log = logging.getLogger(__name__)
 
 import re
-from itertools import chain
+import math
+from itertools import chain, product
 from .crn_parser import parse_crn_file, parse_crn_string
 
 def parse_crn(string, is_file = False, modular = False):
@@ -67,6 +68,23 @@ def clean_crn(crn, duplicates = True, trivial = True, inter = None):
         new.append([lR, lP])
         seen.add((tR, tP))
     return new
+
+def crnsize(crn):
+    """ The size of a CRN as defined in JDW 2019.
+    """
+    sp = set().union(*[set().union(*rxn[:2]) for rxn in crn])
+    tot = 0
+    for r, p in crn:
+        for s in sp:
+            tot += math.ceil(math.log2(len([x for x in r if x == s]) + 1)) + \
+                   math.ceil(math.log2(len([x for x in p if x == s]) + 1))
+    return tot + len(sp)
+
+def intersize(inter, fsp, isp):
+    """ The size of a CRN interpretation as defined in JDW 2019.
+    """
+    # TODO: untested
+    return sum([math.ceil(math.log2(len([x for x in inter[fsp] if x == s]) + 1)) for f, s in product(fsp, isp)])
 
 def interpret(l, inter):
     """ Replace species with their interpretation. """

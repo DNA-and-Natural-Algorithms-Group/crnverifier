@@ -33,7 +33,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Just used
                                           subst) 
 
-SKIP_SLOW = True
+SKIP_SLOW = True # NOTE: takes about 4 hours and 30 minutes.
 SKIP_DEBUG = False
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")

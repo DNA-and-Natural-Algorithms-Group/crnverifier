@@ -10,6 +10,7 @@
 import logging
 log = logging.getLogger(__name__)
 
+import sys
 import copy
 import math
 import random
@@ -340,7 +341,7 @@ def passes_modularity_condition(bisim, icrn, common_is, common_fs):
                             reset = True
     return len(todo) == 0
 
-def check_permissive_bruteforce(fcrn, icrn, fs, inter, maxdepth = 100):
+def check_permissive_bruteforce(fcrn, icrn, fs, inter, maxdepth = None):
     """ Check the permissive condition via a brute force path search.
     
     Args:
@@ -348,7 +349,7 @@ def check_permissive_bruteforce(fcrn, icrn, fs, inter, maxdepth = 100):
         icrn: The implementation CRN.
         fs: The formal species.
         inter: The interpretation.
-        maxdepth: A maximum brute force recursion depth. Defaults to 100.
+        maxdepth: A maximum brute force recursion depth. Defaults to None.
 
     Raises:
         SearchDepthExceeded: If the hardcoded maxdepth is reached.
@@ -362,14 +363,17 @@ def check_permissive_bruteforce(fcrn, icrn, fs, inter, maxdepth = 100):
     assert checkT(T) # Assuming this has been checked before calling permissive.
     assert all(fs | set(v) == fs for k, v in inter.items())
 
+    if maxdepth is None:
+        maxdepth = sys.getrecursionlimit() - 10 # should it be one? should it be two?
+
     log.debug(f'The implementation CRN:\n' + '\n'.join(
         [f'{e} {t=} {pretty_rxn(sicrn[e])} ({pretty_rxn(icrn[e])})' \
                 for e, t in enumerate(T)]))
     log.debug(f'{inter=}')
 
     def bruteforce(si, seen, trivials, depth = 0):
-        if maxdepth and depth > maxdepth:
-            raise SearchDepthExceeded('WARNING: brute-force permissive test could not find a ')
+        if depth > maxdepth:
+            raise SearchDepthExceeded('WARNING: brute-force permissive test exceeded recursion depth.')
         st = tuple(sorted(si))
         if st in seen:
             return False
