@@ -11,6 +11,7 @@ import unittest
 
 from crnverifier.utils import parse_crn
 from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
+                                          EnumSpeciesAssignmentError,
                                           # Main interface
                                           crn_bisimulations,
                                           crn_bisimulation_test, 
@@ -20,6 +21,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           subsetsL, 
                                           enumL, 
                                           same_reaction, 
+                                          trivial_reaction, 
                                           makeT, 
                                           checkT,
                                           # ConditionTests
@@ -33,7 +35,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Just used
                                           subst) 
 
-SKIP_SLOW = True # NOTE: takes about 4 hours and 30 minutes.
+SKIP_SLOW = True # TODO(SB): update: NOTE: takes about 4 hours and 30 minutes.
 SKIP_DEBUG = False
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
@@ -168,6 +170,7 @@ class HelperTests(unittest.TestCase):
       - subsetsL
       - enumL
       - same_reaction
+      - trivial_reaction
       - makeT
       - checkT
     """
@@ -292,7 +295,7 @@ class HelperTests(unittest.TestCase):
         assert list(enumL(3, [], weights = [1, 2, 3])) == [[(), (), ()]]
 
         assert list(enumL(1, ['A'], weights = [1])) == [[('A',)]]
-        with self.assertRaises(SpeciesAssignmentError):
+        with self.assertRaises(EnumSpeciesAssignmentError):
             assert list(enumL(1, ['A'], weights = [2])) == [[()]]
         assert list(enumL(1, ['A', 'A'], weights = [2])) == [[('A',)]]
         assert sorted(list(enumL(2, ['A', 'A'], weights = [2, 1]))) == sorted(
@@ -341,6 +344,18 @@ class HelperTests(unittest.TestCase):
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
         assert same_reaction(icrn[0], fcrn[0], fs)
+        
+        frxn = "A + B -> B + B"
+        irxn = "i5 + i5 -> i8"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
+
+        frxn = "B + B -> A + B"
+        irxn = "i5 -> i8 + i8"
+        fcrn, fs = parse_crn(frxn)
+        icrn, _ = parse_crn(irxn)
+        assert not same_reaction(icrn[0], fcrn[0], fs)
 
     def test_same_reaction_products(self):
         frxn = "A + B -> C + D"
@@ -398,6 +413,42 @@ class HelperTests(unittest.TestCase):
         fcrn, fs = parse_crn(frxn)
         icrn, _ = parse_crn(irxn)
         assert not same_reaction(icrn[0], fcrn[0], fs)
+
+    def test_trivial_reaction(self):
+        fs = set(list('ABC'))
+        irxn = "x -> y"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "x -> A"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "A -> y"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "x + y -> A"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "x + y -> A + B"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "x + x -> A + B"
+        icrn, _ = parse_crn(irxn)
+        assert not trivial_reaction(icrn[0], fs)
+
+        fs = set(list('ABC'))
+        irxn = "a + x + x -> A + B + y"
+        icrn, _ = parse_crn(irxn)
+        assert trivial_reaction(icrn[0], fs)
 
     def test_update_table(self):
         fcrn = "A + B -> C"
@@ -1358,6 +1409,40 @@ class FastBisimulationTests(unittest.TestCase):
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, inter)
         assert v is False
 
+    def test_species_assignments(self):
+        # Uses soloveichik2010 translation scheme.
+        fcrn = "A + B -> B + B"
+        icrn = """A <=> i2
+                  B_1_ + i5 <=> i43
+                  B_1_ <=> i45
+                  B_2_ + i5 <=> i49
+                  B_2_ <=> i51
+                  i2 <=> i3
+                  i3 <=> i5
+                  i5 + i5 <=> i7
+                  i5 + i5 <=> i8
+                  i5 + i25 <=> i28
+                  i5 + i25 <=> i29
+                  i5 <=> i10
+                  i5 <=> i11
+                  i7 <=> i8
+                  i10 <=> i11
+                  i25 <=> i31
+                  i28 <=> i29
+                  i31 -> B_1_ + i34
+                  i34 -> B_2_
+                  i34 <=> i38
+                  i38 <=> i39
+                  i39 -> B_2_
+                  i39 -> i34
+                  i43 -> i25
+                  i49 -> i25 """
+        fcrn, fs = parse_crn(fcrn)
+        icrn, _ = parse_crn(icrn)
+        partial = {'A': ['A'], 'B_1_': ['B'], 'B_2_': ['B']}
+        v, i = crn_bisimulation_test(fcrn, icrn, fs, interpretation = partial)
+        assert v
+
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
 class ModularBisimulationTests(unittest.TestCase):
     def test_qian_roessler_modular(self):
@@ -1513,14 +1598,14 @@ class SlowBisimulationTests(unittest.TestCase):
         self.assertTrue(v)
 
     def test_QingDong_crn6_gs(self):
-        # NOTE: typically under 4 minutes.
+        # NOTE: typically under 10 minutes.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
         self.assertTrue(v)
 
     def test_QingDong_crn6_bf(self):
-        # NOTE: typically under 2 minutes.
+        # NOTE: typically under 10 minutes.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'bruteforce')
@@ -1580,7 +1665,6 @@ class LoopsearchBisimulationTests(unittest.TestCase):
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'loopsearch')
         self.assertTrue(v)
-
 
 if __name__ == '__main__':
     unittest.main()

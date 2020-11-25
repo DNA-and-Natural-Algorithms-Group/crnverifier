@@ -23,10 +23,10 @@ from .utils import interpret as interpretL
 class SpeciesAssignmentError(Exception):
     pass
 
-class SearchDepthExceeded(Exception):
+class EnumSpeciesAssignmentError(Exception):
     pass
 
-class CRNBisimulationError(Exception):
+class SearchDepthExceeded(Exception):
     pass
 
 # Conversion between internal and external representation of implementation species.
@@ -85,6 +85,9 @@ def enumL(n, l, weights = None):
         (x, y) = ((A,), (B,)), or 
         (x, y) = ((), (A, A, B)).
 
+    Raises:
+        EnumSpeciecsError('Cannot satisfy the assignment.')
+
     Yields: 
         tuple: all possible assignents.
     """
@@ -112,7 +115,7 @@ def enumL(n, l, weights = None):
     if n == 1:
         l = ldiv(l, w)
         if l is None:
-            raise SpeciesAssignmentError
+            raise EnumSpeciesAssignmentError
         yield [tuple(l)]
         return
 
@@ -124,9 +127,19 @@ def enumL(n, l, weights = None):
         try:
             for j in enumL(n-1, subtractL(l, ss), weights[1:]):
                 yield [wss] + j
-        except SpeciesAssignmentError:
+        except EnumSpeciesAssignmentError:
             continue
     return
+
+#TODO(SB): When should we clear the cache?
+#SRCACHE = dict()
+#def same_reaction_cache(irxn, frxn, fs):
+#    global SRCACHE
+#    tirxn = tuple(map(tuple, irxn))
+#    tfrxn = tuple(map(tuple, frxn))
+#    if (tirxn, tfrxn) not in SRCACHE:
+#        SRCACHE[(tirxn, tfrxn)] = same_reaction(irxn, frxn, fs)
+#    return SRCACHE[(tirxn, tfrxn)]
 
 def same_reaction(irxn, frxn, fs):
     """ Check if irxn *could* be interpreted as frxn.
@@ -134,10 +147,15 @@ def same_reaction(irxn, frxn, fs):
     This assumes that irxn is already interpreted using the formal species fs.
     SB: Note, that I introduced a new expression expression here, see below.
     """
-    fr = set(subtractL(frxn[0], irxn[0], strict = False)) # exess formal reactants 
-    ir = set(subtractL(irxn[0], frxn[0], strict = False)) # exess implementation reactants 
-    fp = set(subtractL(frxn[1], irxn[1], strict = False)) # exess formal products
-    ip = set(subtractL(irxn[1], frxn[1], strict = False)) # exess implementation products
+    ul = subtractL(irxn[0], frxn[0], strict = False) # exess implementation reactants 
+    sl = subtractL(frxn[0], irxn[0], strict = False) # exess formal reactants 
+    ur = subtractL(irxn[1], frxn[1], strict = False) # exess implementation products
+    sr = subtractL(frxn[1], irxn[1], strict = False) # exess formal products
+
+    ir = set(ul) # unassigned implementation reactants 
+    fr = set(sl) # exess formal reactants 
+    ip = set(ur) # unassingend implementation products
+    fp = set(sr) # exess formal products
     if ir & fs or ip & fs:
         # There are excess formal reactants or excess formal products
         # in the implementation reaction, so this reaction cannot
@@ -156,14 +174,53 @@ def same_reaction(irxn, frxn, fs):
         # Example:    A -> B + C
         # cannot be:  A + y -> B + y
         return False
+
+    try: # NOTE: this is new. The very same function we use later to assign species.
+        # Left side check
+        ul = Counter(ul)
+        [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+        next(enumL(len(ul), sl, vl))
+
+        # Right side check
+        ur = Counter(ur)
+        [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+        next(enumL(len(ur), sr, vr))
+    except EnumSpeciesAssignmentError:
+        return False
     return True
 
+def trivial_reaction(irxn, fs):
+    # Formal reactants and products.
+    sl = subtractL(irxn[0], irxn[1], strict = False)
+    sr = subtractL(irxn[1], irxn[0], strict = False)
+    ir = set(sl) # "non-trivial" reactants
+    ip = set(sr) # "non-trivial" products
+    if (ir & fs and ip <= fs) or (ip & fs and ir <= fs):
+        # If the implementation reactants contain a formal species and
+        # all implementation products are (different) formal species, or
+        # if the implementation products contain a formal species and
+        # all implementation reactants are (different) formal species:
+        return False
+    else: # Could be trival
+        try:
+            ul = Counter([x for x in irxn[0] if x not in fs])
+            sr = [x for x in sr if x in fs]
+            [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
+            next(enumL(len(ul), sr, vl))
+            ur = Counter([x for x in irxn[1] if x not in fs])
+            sl = [x for x in sl if x in fs]
+            [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+            next(enumL(len(ur), sl, vr))
+        except EnumSpeciesAssignmentError:
+            return False
+    return True
+ 
 def makeT(fcrn, icrn, fs):
     """ Calculate a table with bool entries.
 
-    Assumes an implementation CRN where all implementation species have been
-    replaced with the corresponding formal species. Thus, the implementation CRN
-    contains a mix of interpreted species and/or uninterpreted species. 
+    Takes an implementation CRN where all implementation species have been
+    replaced with the corresponding formal species. Thus, the implementation
+    CRN contains a mix of interpreted species and/or uninterpreted species. 
 
     Returns:
         list[lists[bool]]: A table of bool entries with dimensions: 
@@ -172,16 +229,7 @@ def makeT(fcrn, icrn, fs):
     r = []
     for irxn in icrn:
         rr = [same_reaction(irxn, frxn, fs) for frxn in fcrn]
-        ir = set(subtractL(irxn[0], irxn[1], strict = False)) # "non-trivial" reactants
-        ip = set(subtractL(irxn[1], irxn[0], strict = False)) # "non-trivial" products
-        if (ir & fs and ip <= fs) or (ip & fs and ir <= fs):
-            # If the implementation reactants contain a formal species and
-            # all implementation products are (different) formal species, or
-            # if the implementation products contain a formal species and
-            # all implementation reactants are (different) formal species:
-            rr.append(False)
-        else: # Could be trival
-            rr.append(True)
+        rr.append(trivial_reaction(irxn, fs))
         r.append(rr)
     return r
 
@@ -760,7 +808,6 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
         raise SpeciesAssignmentError('Unordered input.')
     
     # We are in correct order, but there may still be duplicates...
-
     sicrn = subst(icrn, intrp)
     T = makeT(fcrn, sicrn, fs)
     if not checkT(T):
@@ -815,28 +862,22 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
     alltriv = all(r is False for k in unknown for r in T[k][:-1]) 
     for k in unknown:
         irxn = sicrn[k] 
-
         if T[k][-1] is True: # Assign a trivial reaction.
             log.debug(f'Interpret: {pretty_rxn(irxn)} => trivial {fs=}')
-
             # Unassigned reactants and products.
             ul = Counter([x for x in irxn[0] if x not in fs])
             ur = Counter([x for x in irxn[1] if x not in fs])
-
             # If this reaction has no unassigned species, then we shouldn't be here!
             assert len(ul) or len(ur)
-
             # Formal reactants and products.
             sl = [x for x in subtractL(irxn[0], irxn[1], False) if x in fs]
             sr = [x for x in subtractL(irxn[1], irxn[0], False) if x in fs]
             log.debug(f'Interpret: {pretty_rxn(irxn)} => {sl=}, {sr=} | {ul=} {ur=}')
             [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
-            tmpl = enumL(len(ul), sr, vl)
             [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
+            tmpl = enumL(len(ul), sr, vl)
             tmpr = enumL(len(ur), sl, vr)
-
             for i, j in product(tmpl, tmpr):
-                log.debug(f'{kl=}{i=}, {kr=}{j=}')
                 intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
                 intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
                 for key in set(intrpleft) & set(intrpright):
@@ -850,10 +891,7 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
                     log.debug(f'Interpret: {imove}')
                     inext.update({k: list(v) for k, v in imove})
                     level = max(len(v) for k, v in imove)
-                    if level in later:
-                        later[level].append((inext, depth))
-                    else:
-                        later[level] = [(inext, depth)]
+                    later[level] = (later.get(level, [])) + [(inext, depth)]
 
             if len(ul) and len(ur):
                 # An implementation reaction where species on both sides are
@@ -865,27 +903,25 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
                     tmpl = enumL(len(ul), [atom]+sr, vl)
                     [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
                     tmpr = enumL(len(ur), [atom]+sl, vr)
-
-                    for i, j in product(tmpl, tmpr):
-                        log.debug(f'{kl=}{i=}, {kr=}{j=}')
-                        intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
-                        intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
-                        for key in set(intrpleft) & set(intrpright):
-                            if any([intrpleft[key][fsp] != \
-                                    intrpright[key][fsp] for fsp in fs]):
-                                # Incompatible dictionaries!
-                                break
-                        else:
-                            inext = intrp.copy()
-                            imove = tuple(sorted(chain(intrpleft.items(), intrpright.items())))
-                            log.debug(f'Interpret: {imove}')
-                            inext.update({k: list(v) for k, v in imove})
-                            level = max(len(v) for k, v in imove)
-                            if level in later:
-                                later[level].append((inext, depth))
+                    try:
+                        for i, j in product(tmpl, tmpr):
+                            intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
+                            intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
+                            for key in set(intrpleft) & set(intrpright):
+                                if any([intrpleft[key][fsp] != \
+                                        intrpright[key][fsp] for fsp in fs]):
+                                    # Incompatible dictionaries!
+                                    break
                             else:
-                                later[level] = [(inext, depth)]
-
+                                inext = intrp.copy()
+                                imove = tuple(sorted(chain(intrpleft.items(), intrpright.items())))
+                                log.debug(f'Interpret: {imove}')
+                                inext.update({k: list(v) for k, v in imove})
+                                level = max(len(v) for k, v in imove)
+                                later[level] = (later.get(level, [])) + [(inext, depth)]
+                    except EnumSpeciesAssignmentError:
+                        log.debug(f'Reaction {pretty_rxn(irxn)} => matching {atom=} ' + \
+                                  f'was not compatible with trivial {fs=}!')
 
         for c, frxn in enumerate(fcrn): # Assign a formal reaction.
             if not T[k][c]:
@@ -898,13 +934,11 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
             # right
             ur = Counter(subtractL(irxn[1], frxn[1], False))
             sr = subtractL(frxn[1], irxn[1], False)
-
             if len(ul) or len(ur):
                 [kl, vl] = zip(*ul.items()) if len(ul) else [[], []]
                 [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
                 tmpl = enumL(len(ul), sl, vl)
                 tmpr = enumL(len(ur), sr, vr)
-
                 for i, j in product(tmpl, tmpr):
                     intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
                     intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
@@ -915,16 +949,13 @@ def search_row(fcrn, icrn, fs, intrp, order = None, seen = None, depth = 0, perm
                             break
                     else:
                         inext = intrp.copy()
-                        imove = tuple(sorted(chain(intrpleft.items(), intrpright.items())))
-                        inext.update({k: list(v) for k, v in imove})
-                        level = max(len(v) for k, v in imove)
-                        if level in later:
-                            later[level].append((inext, depth))
-                        else:
-                            later[level] = [(inext, depth)]
+                        inext.update({k: list(v) for k, v in intrpleft.items()})
+                        inext.update({k: list(v) for k, v in intrpright.items()})
+                        level = max(len(v) for k, v in chain(intrpleft.items(), 
+                                                             intrpright.items()))
+                        later[level] = (later.get(level, [])) + [(inext, depth)]
             for i in search(later, n = 0, m = 1):
                 yield i
-        log.debug('moving on')
         for i in search(later, n = 0, m = 2):
             yield i
     for i in search(later, n = 2):
@@ -1009,7 +1040,6 @@ def search_column(fcrn, icrn, fs = None, intrp = None, unknown = None, depth = 0
                 [kr, vr] = zip(*ur.items()) if len(ur) else [[], []]
                 tmpl = enumL(len(ul), sl, vl)
                 tmpr = enumL(len(ur), sr, vr)
-                
                 for i, j in product(tmpl, tmpr):
                     intrpleft = {k: tuple(sorted(v)) for k, v in zip(kl, i)}
                     intrpright = {k: tuple(sorted(v)) for k, v in zip(kr, j)}
@@ -1094,7 +1124,7 @@ def crn_bisimulations(fcrn, icrn,
         return
 
     if permissive not in ['default', 'graphsearch', 'loopsearch', 'bruteforce']:
-        raise CRNBisimulationError('Unknown option: {}'.format(
+        raise ValueError('Unknown option: {}'.format(
             'the permissive test should be {}'.format(
             '"graphsearch", "loopsearch", or "bruteforce".')))
     new = []
@@ -1125,8 +1155,9 @@ def crn_bisimulations(fcrn, icrn,
                     yield formalize(bisim)
             except SpeciesAssignmentError:
                 continue
+        log.debug(f'Done after checking {len(seen)} partial interpretations.')
     except SpeciesAssignmentError:
-        pass
+        log.info(f'Unable to satisfy delimiting condition with initial partial interpretation.')
     return
 
 def modular_crn_bisimulation_test(fcrns, icrns, 
