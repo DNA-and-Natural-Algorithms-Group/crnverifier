@@ -35,7 +35,7 @@ from crnverifier.crn_bisimulation import (SpeciesAssignmentError,
                                           # Just used
                                           subst) 
 
-SKIP_SLOW = True # TODO(SB): update: NOTE: takes about 4 hours and 30 minutes.
+SKIP_SLOW = True # NOTE: takes about 6-7 days now!!! 
 SKIP_DEBUG = False
 
 @unittest.skipIf(SKIP_DEBUG, "skipping tests for debugging")
@@ -1569,7 +1569,7 @@ class ModularBisimulationTests(unittest.TestCase):
 @unittest.skipIf(SKIP_SLOW or SKIP_DEBUG, "skipping tests for debugging")
 class SlowBisimulationTests(unittest.TestCase):
     def test_QingDong_crn6_i1_gs(self):
-        # NOTE: typically under 30 seconds.
+        # NOTE: under 3 minutes.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter_01 = {'i778': ['Y'],
@@ -1577,14 +1577,25 @@ class SlowBisimulationTests(unittest.TestCase):
                     'i599': ['C'],
                     'i2232': ['A'],
                     'i73': ['B']}
-
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_01,
-                                     permissive = 'graphsearch')
-        self.assertTrue(v)
+        #v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = inter_01, permissive = 'graphsearch')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, interpretation = inter_01, permissive = 'graphsearch'))
+        assert len(getall) == 3
+        #print()
+        #for e, b in enumerate(getall):
+        #    print(e, {k: v for k, v in sorted(b.items())})
+        i1 = {'A': ['A'], 'B': ['B'], 'C': [], 'X': ['X'], 'Y': ['Y'], 'i119': ['A', 'B', 'X'], 'i120': [], 'i14': [], 'i1457': [], 'i15': [], 
+              'i194': [], 'i2232': ['A'], 'i2300': ['A'], 'i2340': ['C'], 'i2392': [], 'i3032': ['C'], 'i394': ['X', 'X', 'Y'], 'i575': ['X'], 'i599': ['C'], 'i631': [], 
+              'i73': ['B'], 'i778': ['Y'], 'i842': ['A', 'X', 'Y'], 'i886': [], 'i969': []}
+        i2 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'X': ['X'], 'Y': ['Y'], 'i119': ['A', 'B', 'X'], 'i120': [], 'i14': [], 'i1457': [], 'i15': [], 
+              'i194': [], 'i2232': ['A'], 'i2300': ['A', 'C'], 'i2340': [], 'i2392': [], 'i3032': [], 'i394': ['X', 'X', 'Y'], 'i575': ['X'], 'i599': ['C'], 'i631': [], 
+              'i73': ['B'], 'i778': ['Y'], 'i842': ['A', 'X', 'Y'], 'i886': [], 'i969': []}
+        i3 = {'A': ['A'], 'B': ['B'], 'C': [], 'X': ['X'], 'Y': ['Y'], 'i119': ['A', 'B', 'X'], 'i120': [], 'i14': [], 'i1457': [], 'i15': [], 
+              'i194': [], 'i2232': ['A'], 'i2300': ['A', 'C'], 'i2340': [], 'i2392': ['C'], 'i3032': ['C'], 'i394': ['X', 'X', 'Y'], 'i575': ['X'], 'i599': ['C'], 'i631': [], 
+              'i73': ['B'], 'i778': ['Y'], 'i842': ['A', 'X', 'Y'], 'i886': [], 'i969': []}
 
     def test_QingDong_crn6_i1_bf(self):
-        # NOTE: typically under 30 seconds.
+        # NOTE: under 3 minutes.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter_01 = {'i778': ['Y'],
@@ -1592,45 +1603,79 @@ class SlowBisimulationTests(unittest.TestCase):
                     'i599': ['C'],
                     'i2232': ['A'],
                     'i73': ['B']}
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, 
-                                     interpretation = inter_01, 
-                                     permissive = 'bruteforce')
-        self.assertTrue(v)
+        #v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = inter_01, permissive = 'bruteforce')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, interpretation = inter_01, permissive = 'bruteforce'))
+        assert len(getall) == 3
 
     def test_QingDong_crn6_gs(self):
-        # NOTE: typically under 10 minutes.
+        # NOTE: 17.5 hours
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
-        self.assertTrue(v)
+        #v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'graphsearch')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, permissive = 'graphsearch'))
+        assert len(getall) == 5
 
     def test_QingDong_crn6_bf(self):
-        # NOTE: typically under 10 minutes.
+        # NOTE: 17.5 hours
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
-        v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'bruteforce')
-        self.assertTrue(v)
+        #v, _ = crn_bisimulation_test(fcrn, icrn, fs, permissive = 'bruteforce')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, permissive = 'bruteforce'))
+        assert len(getall) == 5
 
     def test_qian_roessler_full_gs(self):
-        # NOTE: typically under 3 hours.
+        # TODO: 2 days 17 hours
         (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
         (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
         partial = {sp: [sp] for sp in fs}
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, permissive = 'graphsearch')
-        self.assertTrue(v)
+        #v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, permissive = 'graphsearch')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, interpretation = partial, permissive = 'graphsearch'))
+        assert len(getall) == 12
 
     def test_qian_roessler_full_bf(self):
-        # TODO: typically under 3 hours.
+        # TODO: 2 days 17 hours
         (fcrn, fs) = parse_crn('tests/crns/roessler_01.crn', is_file = True)
         (icrn, _) = parse_crn('tests/crns/icrns/roessler_qian2011.crn', is_file = True)
         partial = {sp: [sp] for sp in fs}
-        v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, permissive = 'bruteforce')
-        self.assertTrue(v)
+        #v, i = crn_bisimulation_test(fcrn, icrn, fs, partial, permissive = 'bruteforce')
+        #self.assertTrue(v)
+        getall = list(crn_bisimulations(fcrn, icrn, interpretation = partial, permissive = 'graphsearch'))
+        assert len(getall) == 12
+
+        # And those are the solutions ...
+        i0 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i1 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i2 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i3 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i4 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i5 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i6 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i7 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i8 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [],
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i9 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [],
+              'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i10 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [],
+               'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
+        i11 = {'A': ['A'], 'B': ['B'], 'C': ['C'], 'e100': ['A', 'A'], 'e101': ['B'], 'e102': [], 'e103': [], 'e104': [], 'e105': [], 'e106': ['A'], 'e107': ['A'], 'e108': ['A', 'B'], 'e109': [], 'e110': [], 
+               'e111': ['B', 'B'], 'e112': ['B'], 'e113': [], 'e114': [], 'e115': ['C', 'C'], 'e116': ['A'], 'e117': ['A', 'C'], 'e118': [], 'e119': [], 'e120': [], 'e121': [], 'e122': ['C']}
 
 @unittest.skipIf(True, "testing somewhat similar to loopsearch algorithm.")
 class LoopsearchBisimulationTests(unittest.TestCase):
     def test_QingDong_crn6_i02_ls(self):
-        # TODO: does not finish ... probably a bug!
+        # NOTE: takes 22 hours... probably a bug!
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
         inter_02 = {'i842': ['Y', 'X', 'A'],
@@ -1645,7 +1690,7 @@ class LoopsearchBisimulationTests(unittest.TestCase):
         v, _ = crn_bisimulation_test(fcrn, icrn, fs, interpretation = inter_02, permissive = 'loopsearch')
         self.assertTrue(v)
 
-    def dtest_QingDong_crn6_i1_ls(self):
+    def test_QingDong_crn6_i1_ls(self):
         # TODO: does not finish ... probably a bug!
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
@@ -1659,7 +1704,7 @@ class LoopsearchBisimulationTests(unittest.TestCase):
                                      permissive = 'loopsearch')
         self.assertTrue(v)
 
-    def dtest_QingDong_crn6_ls(self):
+    def test_QingDong_crn6_ls(self):
         # TODO: test again after i1 and i2 terminate.
         fcrn, fs = parse_crn('tests/crns/crn6.crn', is_file = True)
         icrn, _ = parse_crn('tests/crns/icrns/crn6_qingdong_thesis.crn', is_file = True)
