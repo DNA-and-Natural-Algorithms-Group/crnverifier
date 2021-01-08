@@ -7,15 +7,14 @@ with open("README.md", "r") as fh:
 
 setup(
     name = 'crnverifier',
-    version = '0.2',
+    version = '0.3',
     description = 'Verify the equivalence of chemical reaction networks (CRNs), or the correctness of an implementation CRN with respect to a formal CRN.',
     long_description = LONG_DESCRIPTION,
     long_description_content_type = "text/markdown",
     author = 'Stefan Badelt, Seung Woo Shin, Robert Johnson, Qing Dong, Erik Winfree',
-    author_email = 'winfree@caltech.edu',
     maintainer = 'Stefan Badelt',
     maintainer_email = 'bad-ants-fleet@posteo.eu',
-    #url = 'http://www.github.com/DNA-and-Natural-Algorithms-Group/crnverifier/',
+    url = 'http://www.github.com/DNA-and-Natural-Algorithms-Group/crnverifier/',
     license = 'MIT',
     classifiers = [
         'Development Status :: 4 - Beta',
