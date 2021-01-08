@@ -6,12 +6,12 @@ trajectory equivalence notions **CRN bisimulation** [[Johnson et al. (2019)]],
 **pathway decomposition** [[Shin et al.  (2019)]] and preliminary implementations of 
 **compositional & integrated hybrid** [[Shin et al.  (2019)]].
 
-[![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/bad-ants-fleet/crnverifier)](https://github.com/bad-ants-fleet/crnverifier/tags)
-[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/bad-ants-fleet/crnverifier?include_prereleases)](https://github.com/bad-ants-fleet/crnverifier/releases)
+[![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/DNA-and-Natural-Algorithms-Group/crnverifier)](https://github.com/DNA-and-Natural-Algorithms-Group/crnverifier/tags)
+[![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/DNA-and-Natural-Algorithms-Group/crnverifier?include_prereleases)](https://github.com/DNA-and-Natural-Algorithms-Group/crnverifier/releases)
 [![PyPI version](https://badge.fury.io/py/crnverifier.svg)](https://badge.fury.io/py/crnverifier)
 [![PyPI - License](https://img.shields.io/pypi/l/crnverifier)](https://opensource.org/licenses/MIT)
-[![Build Status](https://travis-ci.com/bad-ants-fleet/crnverifier.svg?branch=master)](https://travis-ci.com/github/bad-ants-fleet/crnverifier)
-[![Codecov branch](https://img.shields.io/codecov/c/github/bad-ants-fleet/crnverifier/master)](https://codecov.io/gh/bad-ants-fleet/crnverifier)
+[![Build Status](https://travis-ci.com/DNA-and-Natural-Algorithms-Group/crnverifier.svg?branch=master)](https://travis-ci.com/github/DNA-and-Natural-Algorithms-Group/crnverifier)
+[![Codecov branch](https://img.shields.io/codecov/c/github/DNA-and-Natural-Algorithms-Group/crnverifier/master)](https://codecov.io/gh/DNA-and-Natural-Algorithms-Group/crnverifier)
 
 
 ### Installation
