@@ -4,8 +4,8 @@
 #  Original source from the Nuskell compiler project
 #
 import logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+#logger = logging.getLogger()
+#logger.setLevel(logging.INFO)
 
 import unittest
 
